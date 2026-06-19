@@ -467,15 +467,20 @@ with main_tabs[0]:
         st.write("current_records の中身:", st.session_state.get("current_records"))
         st.write("current_adjustments の中身:", st.session_state.get("current_adjustments"))
 
-    if st.button("① 新規条件で台帳作成（全クリア）", type="primary"):
+    if st.button("① 入力中の条件で台帳をリセット（記録だけ初期化・入力欄はそのまま）", type="primary",
+                  help="ステップ1に入力した農場名・入雛日などの条件はそのまま使い、下の台帳（実績・調整の記録）だけを1日目の状態に戻します。入力欄自体は空になりません。"):
         st.session_state.current_records = {0: {"delivered": first_qty, "actual_tank": first_qty, "type": "確定"}}
         st.session_state.current_adjustments = {}
         if "loaded_params" in st.session_state:
             del st.session_state["loaded_params"]
-        st.success("🆕 初期条件でクリアした台帳を作成しました。")
+        if "act_date_select" in st.session_state:
+            del st.session_state["act_date_select"]
+        st.session_state["flash_message"] = ("success", "🆕 入力中の条件で台帳をリセットしました（入力欄の値はそのまま使っています）。")
+        st.rerun()
 
     st.markdown("---")
     st.subheader("🔍 ステップ2：過去データの絞り込み読込・保存")
+    st.caption("💡「保存」を押すまでは、まだ過去データの一覧には出てきません。保存して初めて、ここから呼び出せるようになります。")
     
     tree = scan_directory()
     farms = list(tree.keys()) if tree else ["(保存データなし)"]
