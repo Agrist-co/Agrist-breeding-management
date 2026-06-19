@@ -1,0 +1,22 @@
+{
+    "farm_name": "上川西農場",
+    "house_no": "A号",
+    "tank_no": "06",
+    "start_date": "2026-05-12",
+    "birds": 1800,
+    "shipping_age": 46,
+    "tank_cap": 5000,
+    "min_alert": 200,
+    "first_qty": 3000,
+    "std_qty": 4000,
+    "pre_limit": 3000,
+    "mid_limit": 0,
+    "records": {
+        "0": {
+            "delivered": 5000,
+            "actual_tank": 5000,
+            "type": "確定"
+        }
+    },
+    "adjustments": {}
+}
