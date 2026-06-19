@@ -430,6 +430,15 @@ with main_tabs[0]:
         pre_limit = st.number_input("前期飼料総量(kg):", value=_d.get("pre_limit", 6000), step=500, key="pre_limit")
         mid_limit = st.number_input("中期飼料総量(kg):", value=_d.get("mid_limit", 10000), step=500, key="mid_limit")
 
+    with st.expander("🛠️ デバッグ情報（不具合調査用・通常は無視してください）"):
+        st.write("loaded_params:", st.session_state.get("loaded_params"))
+        st.write("現在のウィジェット値 → farm_name:", st.session_state.get("farm_name"),
+                  " / start_date:", st.session_state.get("start_date"),
+                  " / birds:", st.session_state.get("birds"))
+        st.write("current_records の件数:", len(st.session_state.get("current_records", {})))
+        st.write("current_records の中身:", st.session_state.get("current_records"))
+        st.write("current_adjustments の中身:", st.session_state.get("current_adjustments"))
+
     if st.button("① 新規条件で台帳作成（全クリア）", type="primary"):
         st.session_state.current_records = {0: {"delivered": first_qty, "actual_tank": first_qty, "type": "確定"}}
         st.session_state.current_adjustments = {}
