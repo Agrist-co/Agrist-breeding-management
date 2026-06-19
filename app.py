@@ -473,16 +473,24 @@ with main_tabs[0]:
     
     col_s1, col_s2, col_s3, col_s4 = st.columns(4)
     with col_s1:
-        sel_farm = st.selectbox("農場選択:", farms)
+        if "sel_farm" in st.session_state and st.session_state["sel_farm"] not in farms:
+            del st.session_state["sel_farm"]
+        sel_farm = st.selectbox("農場選択:", farms, key="sel_farm")
     with col_s2:
         houses = list(tree[sel_farm].keys()) if sel_farm in tree else ["—"]
-        sel_house = st.selectbox("鶏舎選択:", houses)
+        if "sel_house" in st.session_state and st.session_state["sel_house"] not in houses:
+            del st.session_state["sel_house"]
+        sel_house = st.selectbox("鶏舎選択:", houses, key="sel_house")
     with col_s3:
         tanks = list(tree[sel_farm][sel_house].keys()) if sel_farm in tree and sel_house in tree[sel_farm] else ["—"]
-        sel_tank = st.selectbox("タンク選択:", tanks)
+        if "sel_tank" in st.session_state and st.session_state["sel_tank"] not in tanks:
+            del st.session_state["sel_tank"]
+        sel_tank = st.selectbox("タンク選択:", tanks, key="sel_tank")
     with col_s4:
         dates = tree[sel_farm][sel_house][sel_tank] if sel_farm in tree and sel_house in tree[sel_farm] and sel_tank in tree[sel_farm][sel_house] else ["—"]
-        sel_date = st.selectbox("入雛日選択:", dates)
+        if "sel_date" in st.session_state and st.session_state["sel_date"] not in dates:
+            del st.session_state["sel_date"]
+        sel_date = st.selectbox("入雛日選択:", dates, key="sel_date")
 
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
     with col_btn1:
@@ -520,10 +528,16 @@ with main_tabs[0]:
                     # 該当キーを削除してから再実行することで loaded_params の値を初期値として反映させる
                     for k in ["farm_name", "house_no", "tank_no", "start_date", "birds",
                               "shipping_age", "tank_cap", "min_alert", "first_qty",
-                              "std_qty", "pre_limit", "mid_limit"]:
+                              "std_qty", "pre_limit", "mid_limit", "act_date_select"]:
                         if k in st.session_state:
                             del st.session_state[k]
-                    st.session_state["flash_message"] = ("success", f"📂 {sel_farm}/{sel_house}/{sel_tank}/{sel_date} のデータを展開しました。")
+                    st.session_state["flash_message"] = (
+                        "success",
+                        f"📂 読込: {sel_farm}/{sel_house}/{sel_tank}/{sel_date} → "
+                        f"loaded.farm_name={loaded.get('farm_name')!r}, "
+                        f"loaded.start_date={loaded.get('start_date')!r}, "
+                        f"loaded.house_no={loaded.get('house_no')!r}"
+                    )
                     st.rerun()
                 except Exception as e:
                     st.session_state["flash_message"] = ("error", f"⚠️ 読込失敗: {type(e).__name__}: {e}")
@@ -570,6 +584,10 @@ with main_tabs[0]:
 
     st.markdown("---")
     st.subheader("📊 ステップ3：日付ベース実績・計画入力")
+
+    st.caption(f"🛠️[デバッグ] 現在計算に使われているパラメータ → "
+               f"farm_name={farm_name!r}, house_no={house_no!r}, tank_no={tank_no!r}, "
+               f"start_date={start_date!r}, birds={birds!r}")
     
     # 対象日の選択肢（「日齢+日付」を表示ラベルにすることで、日付文字列の重複による誤選択を防ぐ）
     label_options = [f"{df_result.loc[idx, 'day']}日齢 ({df_result.loc[idx, 'date']})" for idx in range(len(df_result))]
@@ -589,22 +607,22 @@ with main_tabs[0]:
     col_input1, col_input2 = st.columns(2)
     with col_input1:
         st.markdown("<b style='color:#f57c00;'>【A】手動調整・調整配車（未来予測の変更）</b>", unsafe_allow_html=True)
-        adj_qty = st.number_input("調整納品数量(kg):", value=4000, step=500)
-        adj_tank = st.number_input("調整時実質残量(kg):", value=int(stock_val), step=500)
-        if st.button("⚙️ 調整配車として反映"):
+        adj_qty = st.number_input("調整納品数量(kg):", value=4000, step=500, key=f"adj_qty_{target_day_idx}")
+        adj_tank = st.number_input("調整時実質残量(kg):", value=int(stock_val), step=500, key=f"adj_tank_{target_day_idx}")
+        if st.button("⚙️ 調整配車として反映", key=f"btn_adj_{target_day_idx}"):
             st.session_state.current_adjustments[target_day_idx] = {"delivered": adj_qty, "actual_tank": adj_tank, "type": "調整配車"}
-            st.success(f"⚙️ {act_date} に手動調整を反映しました。")
+            st.session_state["flash_message"] = ("success", f"⚙️ {act_date} に手動調整を反映しました。")
             st.rerun()
 
     with col_input2:
         st.markdown("<b style='color:#388e3c;'>【B】実績の完全確定入力（過去データの固定化）</b>", unsafe_allow_html=True)
-        act_delivered = st.number_input("実際の納品量(kg):", value=4000, step=500)
-        act_tank = st.number_input("納品時のタンク残量(kg):", value=1000, step=500)
-        if st.button("🏁 実績として確定保存して再計算"):
+        act_delivered = st.number_input("実際の納品量(kg):", value=4000, step=500, key=f"act_delivered_{target_day_idx}")
+        act_tank = st.number_input("納品時のタンク残量(kg):", value=1000, step=500, key=f"act_tank_{target_day_idx}")
+        if st.button("🏁 実績として確定保存して再計算", key=f"btn_act_{target_day_idx}"):
             st.session_state.current_records[target_day_idx] = {"delivered": act_delivered, "actual_tank": act_tank, "type": "確定"}
             if target_day_idx in st.session_state.current_adjustments:
                 del st.session_state.current_adjustments[target_day_idx]
-            st.success(f"🏁 {act_date} の実績データを固定しました。")
+            st.session_state["flash_message"] = ("success", f"🏁 {act_date} の実績データを固定しました。")
             st.rerun()
 
     st.markdown("---")
