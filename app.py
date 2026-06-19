@@ -43,6 +43,107 @@ def find_japanese_font():
 
 FONT_PATH = find_japanese_font()
 
+# ==============================================================================
+# ☁️ GitHub連携によるデータ永続化（Streamlit Cloud対応）
+# ==============================================================================
+# st.secrets に GITHUB_TOKEN / GITHUB_REPO / GITHUB_BRANCH が設定されていれば
+# データの保存先をGitHubリポジトリに切り替える（Streamlit Cloud再起動でも消えない）。
+# ローカル実行時（secretsが無い場合）は、従来通りローカルフォルダに保存する。
+USE_GITHUB_STORAGE = False
+_gh_repo = None
+try:
+    if "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
+        from github import Github, GithubException
+        _gh_branch = st.secrets.get("GITHUB_BRANCH", "main")
+        _gh_client = Github(st.secrets["GITHUB_TOKEN"])
+        _gh_repo = _gh_client.get_repo(st.secrets["GITHUB_REPO"])
+        USE_GITHUB_STORAGE = True
+except Exception:
+    USE_GITHUB_STORAGE = False
+    _gh_repo = None
+
+GH_DATA_PREFIX = "鶏舎飼料管理データ"  # GitHubリポジトリ内の保存先フォルダ名
+
+def gh_path_join(*parts):
+    return "/".join([p.strip("/") for p in parts if p])
+
+def gh_read_json(path):
+    """GitHub上のJSONファイルを読み込む。存在しなければNoneを返す。"""
+    try:
+        content_file = _gh_repo.get_contents(path, ref=_gh_branch)
+        return json.loads(content_file.decoded_content.decode("utf-8"))
+    except Exception:
+        return None
+
+def gh_write_json(path, data_obj, commit_message):
+    """GitHub上にJSONファイルを書き込む（新規作成 or 更新を自動判定）。"""
+    content_str = json.dumps(data_obj, ensure_ascii=False, indent=4)
+    try:
+        existing = _gh_repo.get_contents(path, ref=_gh_branch)
+        _gh_repo.update_file(path, commit_message, content_str, existing.sha, branch=_gh_branch)
+    except GithubException:
+        _gh_repo.create_file(path, commit_message, content_str, branch=_gh_branch)
+
+def gh_list_tree():
+    """GitHub上の保存データ構造をスキャンしてローカル版と同じ形式の辞書を返す。"""
+    data_tree = {}
+    try:
+        contents = _gh_repo.get_contents(GH_DATA_PREFIX, ref=_gh_branch)
+    except Exception:
+        return data_tree
+    farms = [c for c in contents if c.type == "dir"]
+    for farm_c in farms:
+        farm = farm_c.name
+        data_tree[farm] = {}
+        try:
+            houses = [c for c in _gh_repo.get_contents(farm_c.path, ref=_gh_branch) if c.type == "dir"]
+        except Exception:
+            houses = []
+        for house_c in houses:
+            house = house_c.name
+            data_tree[farm][house] = {}
+            try:
+                tanks = [c for c in _gh_repo.get_contents(house_c.path, ref=_gh_branch) if c.type == "dir"]
+            except Exception:
+                tanks = []
+            for tank_c in tanks:
+                tank = tank_c.name
+                data_tree[farm][house][tank] = []
+                try:
+                    files = _gh_repo.get_contents(tank_c.path, ref=_gh_branch)
+                except Exception:
+                    files = []
+                for f in files:
+                    if f.name.endswith(".json") and f.name != "latest_session.json":
+                        data_tree[farm][house][tank].append(f.name.replace(".json", ""))
+                data_tree[farm][house][tank].sort()
+    return data_tree
+
+def gh_collect_farm_records(farm):
+    """GitHub上の指定農場配下にある全保存JSONファイルを読み込んで一覧で返す。"""
+    results = []
+    try:
+        houses = [c for c in _gh_repo.get_contents(gh_path_join(GH_DATA_PREFIX, farm), ref=_gh_branch) if c.type == "dir"]
+    except Exception:
+        return results
+    for house_c in houses:
+        try:
+            tanks = [c for c in _gh_repo.get_contents(house_c.path, ref=_gh_branch) if c.type == "dir"]
+        except Exception:
+            tanks = []
+        for tank_c in tanks:
+            try:
+                files = _gh_repo.get_contents(tank_c.path, ref=_gh_branch)
+            except Exception:
+                files = []
+            for f in sorted(files, key=lambda x: x.name):
+                if f.name.endswith(".json") and f.name != "latest_session.json":
+                    try:
+                        results.append(json.loads(f.decoded_content.decode("utf-8")))
+                    except Exception:
+                        pass
+    return results
+
 # --- 📁 ディレクトリ管理（Streamlit汎用） ---
 BASE_DIR = './鶏舎飼料管理データ/'
 if not os.path.exists(BASE_DIR):
@@ -80,10 +181,17 @@ if "current_adjustments" not in st.session_state:
 
 # 最初の一回だけ、前回セッションがあれば自動復元
 if "initialized" not in st.session_state:
-    if os.path.exists(LATEST_SESSION_FILE):
+    loaded = None
+    if USE_GITHUB_STORAGE:
+        loaded = gh_read_json(gh_path_join(GH_DATA_PREFIX, "latest_session.json"))
+    elif os.path.exists(LATEST_SESSION_FILE):
         try:
             with open(LATEST_SESSION_FILE, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
+        except:
+            loaded = None
+    if loaded:
+        try:
             st.session_state.current_records = {int(k): v for k, v in loaded["records"].items()}
             st.session_state.current_adjustments = {int(k): v for k, v in loaded.get("adjustments", {}).items()}
         except:
@@ -92,6 +200,8 @@ if "initialized" not in st.session_state:
 
 # --- 📁 ディレクトリデータスキャン ---
 def scan_directory():
+    if USE_GITHUB_STORAGE:
+        return gh_list_tree()
     data_tree = {}
     if not os.path.exists(BASE_DIR): return data_tree
     for farm in sorted(os.listdir(BASE_DIR)):
@@ -317,9 +427,16 @@ with main_tabs[0]:
         if st.button("📂 選択したデータを読込", type="secondary"):
             if sel_farm != "(保存データなし)" and sel_date != "—":
                 try:
-                    filepath = os.path.join(BASE_DIR, sel_farm, sel_house, sel_tank, f"{sel_date}.json")
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        loaded = json.load(f)
+                    loaded = None
+                    if USE_GITHUB_STORAGE:
+                        gh_path = gh_path_join(GH_DATA_PREFIX, sel_farm, sel_house, sel_tank, f"{sel_date}.json")
+                        loaded = gh_read_json(gh_path)
+                        if loaded is None:
+                            raise FileNotFoundError("GitHub上にファイルが見つかりません")
+                    else:
+                        filepath = os.path.join(BASE_DIR, sel_farm, sel_house, sel_tank, f"{sel_date}.json")
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            loaded = json.load(f)
                     st.session_state.current_records = {int(k): v for k, v in loaded["records"].items()}
                     st.session_state.current_adjustments = {int(k): v for k, v in loaded.get("adjustments", {}).items()}
                     st.success("📂 選択された過去データを正常に展開しました。")
@@ -328,10 +445,6 @@ with main_tabs[0]:
     with col_btn2:
         if st.button("💾 全体の状態をファイルへ保存", type="secondary"):
             try:
-                target_dir = os.path.join(BASE_DIR, farm_name, house_no, tank_no)
-                if not os.path.exists(target_dir): os.makedirs(target_dir)
-                filepath = os.path.join(target_dir, f"{start_date.strftime('%Y-%m-%d')}.json")
-                
                 save_data = {
                     "farm_name": farm_name, "house_no": house_no, "tank_no": tank_no,
                     "start_date": start_date.strftime('%Y-%m-%d'),
@@ -341,10 +454,19 @@ with main_tabs[0]:
                     "records": st.session_state.current_records,
                     "adjustments": st.session_state.current_adjustments
                 }
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    json.dump(save_data, f, ensure_ascii=False, indent=4)
-                with open(LATEST_SESSION_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(save_data, f, ensure_ascii=False, indent=4)
+                if USE_GITHUB_STORAGE:
+                    record_path = gh_path_join(GH_DATA_PREFIX, farm_name, house_no, tank_no, f"{start_date.strftime('%Y-%m-%d')}.json")
+                    latest_path = gh_path_join(GH_DATA_PREFIX, "latest_session.json")
+                    gh_write_json(record_path, save_data, f"台帳保存: {farm_name}/{house_no}/{tank_no} {start_date}")
+                    gh_write_json(latest_path, save_data, "最新セッションの自動バックアップ更新")
+                else:
+                    target_dir = os.path.join(BASE_DIR, farm_name, house_no, tank_no)
+                    if not os.path.exists(target_dir): os.makedirs(target_dir)
+                    filepath = os.path.join(target_dir, f"{start_date.strftime('%Y-%m-%d')}.json")
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        json.dump(save_data, f, ensure_ascii=False, indent=4)
+                    with open(LATEST_SESSION_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(save_data, f, ensure_ascii=False, indent=4)
                 st.success("💾 ファイルを保存し、自動復元用バックアップを更新しました。")
                 st.rerun() # ドロップダウンを更新するために再実行
             except Exception as e:
@@ -451,45 +573,56 @@ with main_tabs[1]:
             lines.append(f"|{pad_to_width('納品予定日', W_DATE, 'center')}|{pad_to_width('鶏舎名', W_HOUSE, 'center')}|{pad_to_width('タンク番号', W_TANK, 'center')}|{pad_to_width('日齢', W_AGE, 'center')}|{pad_to_width('指示備考詳細（数量・銘柄）', W_NOTE, 'center')}|")
             lines.append(SEP_LINE)
             
-            farm_dir = os.path.join(BASE_DIR, report_farm)
             all_plans = []
-            if os.path.exists(farm_dir):
-                for house in sorted(os.listdir(farm_dir)):
-                    house_path = os.path.join(farm_dir, house)
-                    if not os.path.isdir(house_path): continue
-                    for tank in sorted(os.listdir(house_path)):
-                        tank_path = os.path.join(house_path, tank)
-                        if not os.path.isdir(tank_path): continue
-                        for file in sorted(os.listdir(tank_path)):
-                            if file.endswith('.json') and file != "latest_session.json":
-                                try:
-                                    with open(os.path.join(tank_path, file), 'r', encoding='utf-8') as f:
-                                        loaded = json.load(f)
-                                    p = {
-                                        "birds": loaded["birds"], "shipping_age": loaded["shipping_age"], "tank_cap": loaded["tank_cap"],
-                                        "min_alert": loaded["min_alert"], "std_qty": loaded["std_qty"], "pre_limit": loaded["pre_limit"],
-                                        "mid_limit": loaded["mid_limit"], "start_date": loaded["start_date"], "first_qty": loaded["first_qty"]
-                                    }
-                                    raw_rec = loaded["records"]
-                                    rec_dict = {int(k): v for k, v in raw_rec.items()}
-                                    raw_adj = loaded.get("adjustments", {})
-                                    adj_dict = {int(k): v for k, v in raw_adj.items()}
-                                    
-                                    res_df = calculate_table_core(p, rec_dict, adj_dict)
-                                    for idx, row in res_df.iterrows():
-                                        d_obj = row["date_obj"]
-                                        if isinstance(d_obj, str):
-                                            d_obj = datetime.strptime(d_obj, "%Y-%m-%d").date()
-                                        
-                                        if report_start <= d_obj <= report_end:
-                                            if row["delivery_kg"] > 0 and row["day"] > 0:
-                                                clean_note = str(row["event_notes"]).replace("🚚", "").strip()
-                                                all_plans.append({
-                                                    "date_str": d_obj.strftime("%Y/%m/%d"), "house": house, "tank": tank,
-                                                    "age": f"{row['day']}日齢", "note": clean_note, "sort_date": d_obj
-                                                })
-                                except:
-                                    pass
+            loaded_records = []
+            if USE_GITHUB_STORAGE:
+                loaded_records = gh_collect_farm_records(report_farm)
+            else:
+                farm_dir = os.path.join(BASE_DIR, report_farm)
+                if os.path.exists(farm_dir):
+                    for house in sorted(os.listdir(farm_dir)):
+                        house_path = os.path.join(farm_dir, house)
+                        if not os.path.isdir(house_path): continue
+                        for tank in sorted(os.listdir(house_path)):
+                            tank_path = os.path.join(house_path, tank)
+                            if not os.path.isdir(tank_path): continue
+                            for file in sorted(os.listdir(tank_path)):
+                                if file.endswith('.json') and file != "latest_session.json":
+                                    try:
+                                        with open(os.path.join(tank_path, file), 'r', encoding='utf-8') as f:
+                                            loaded_records.append(json.load(f))
+                                    except Exception:
+                                        pass
+
+            for loaded in loaded_records:
+                try:
+                    house = loaded.get("house_no", "—")
+                    tank = loaded.get("tank_no", "—")
+                    p = {
+                        "birds": loaded["birds"], "shipping_age": loaded["shipping_age"], "tank_cap": loaded["tank_cap"],
+                        "min_alert": loaded["min_alert"], "std_qty": loaded["std_qty"], "pre_limit": loaded["pre_limit"],
+                        "mid_limit": loaded["mid_limit"], "start_date": loaded["start_date"], "first_qty": loaded["first_qty"]
+                    }
+                    raw_rec = loaded["records"]
+                    rec_dict = {int(k): v for k, v in raw_rec.items()}
+                    raw_adj = loaded.get("adjustments", {})
+                    adj_dict = {int(k): v for k, v in raw_adj.items()}
+
+                    res_df = calculate_table_core(p, rec_dict, adj_dict)
+                    for idx, row in res_df.iterrows():
+                        d_obj = row["date_obj"]
+                        if isinstance(d_obj, str):
+                            d_obj = datetime.strptime(d_obj, "%Y-%m-%d").date()
+
+                        if report_start <= d_obj <= report_end:
+                            if row["delivery_kg"] > 0 and row["day"] > 0:
+                                clean_note = str(row["event_notes"]).replace("🚚", "").strip()
+                                all_plans.append({
+                                    "date_str": d_obj.strftime("%Y/%m/%d"), "house": house, "tank": tank,
+                                    "age": f"{row['day']}日齢", "note": clean_note, "sort_date": d_obj
+                                })
+                except Exception:
+                    pass
 
             if all_plans:
                 all_plans.sort(key=lambda x: (x["sort_date"], x["house"], x["tank"]))
