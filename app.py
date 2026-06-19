@@ -404,9 +404,6 @@ with main_tabs[0]:
         std_qty = st.number_input("通常配送単位(kg):", value=_d.get("std_qty", 4000), step=500, key="std_qty")
         pre_limit = st.number_input("前期飼料総量(kg):", value=_d.get("pre_limit", 6000), step=500, key="pre_limit")
         mid_limit = st.number_input("中期飼料総量(kg):", value=_d.get("mid_limit", 10000), step=500, key="mid_limit")
-        std_qty = st.number_input("通常配送単位(kg):", value=4000, step=500)
-        pre_limit = st.number_input("前期飼料総量(kg):", value=6000, step=500)
-        mid_limit = st.number_input("中期飼料総量(kg):", value=10000, step=500)
 
     if st.button("① 新規条件で台帳作成（全クリア）", type="primary"):
         st.session_state.current_records = {0: {"delivered": first_qty, "actual_tank": first_qty, "type": "確定"}}
