@@ -305,8 +305,33 @@ def calculate_table_core(param_dict, rec_dict, adj_dict):
             pred_tank_morning[d] = evening_pred_tank
             if d in adj_dict:
                 adj_info = adj_dict[d]
-                delivery_plan[d] = adj_info["delivered"]
-                event_notes[d] = f"【調整配車】納品量: {adj_info['delivered']:.0f}kg"
+                adj_qty_val = adj_info["delivered"]
+                delivery_plan[d] = adj_qty_val
+                # 手動調整配車も、前期・中期の残り枠をまたぐ場合は「調整混載発注」として表記する
+                rem_pre_adj = pre_limit - allocated_pre if pre_limit > 0 else 0
+                rem_mid_adj = mid_limit - allocated_mid if mid_limit > 0 else 0
+                if rem_pre_adj > 0:
+                    if rem_pre_adj >= adj_qty_val:
+                        allocated_pre += adj_qty_val
+                        event_notes[d] = f"【調整発注】納品量: {adj_qty_val:.0f}kg"
+                    else:
+                        mix_next = adj_qty_val - rem_pre_adj
+                        allocated_pre += rem_pre_adj
+                        if mid_limit > 0:
+                            allocated_mid += mix_next
+                            event_notes[d] = f"【調整混載発注】前期: {rem_pre_adj:.0f}kg / 中期: {mix_next:.0f}kg"
+                        else:
+                            event_notes[d] = f"【調整混載発注】前期: {rem_pre_adj:.0f}kg / 仕上: {mix_next:.0f}kg"
+                elif rem_mid_adj > 0:
+                    if rem_mid_adj >= adj_qty_val:
+                        allocated_mid += adj_qty_val
+                        event_notes[d] = f"【調整発注】納品量: {adj_qty_val:.0f}kg"
+                    else:
+                        mix_fin = adj_qty_val - rem_mid_adj
+                        allocated_mid += rem_mid_adj
+                        event_notes[d] = f"【調整混載発注】中期: {rem_mid_adj:.0f}kg / 仕上: {mix_fin:.0f}kg"
+                else:
+                    event_notes[d] = f"【調整発注】納品量: {adj_qty_val:.0f}kg"
                 if adj_info["actual_tank"] is not None:
                     pred_tank_morning[d] = adj_info["actual_tank"]
                     real_tank_morning[d] = adj_info["actual_tank"]
@@ -515,11 +540,16 @@ with main_tabs[0]:
     st.markdown("---")
     st.subheader("📊 ステップ3：日付ベース実績・計画入力")
     
-    # 対象日の選択肢
-    date_options = [df_result.loc[idx, "date"] for idx in range(len(df_result))]
-    act_date = st.selectbox("対象の日付を選択:", date_options)
-    
-    target_day_idx = date_options.index(act_date)
+    # 対象日の選択肢（「日齢+日付」を表示ラベルにすることで、日付文字列の重複による誤選択を防ぐ）
+    label_options = [f"{df_result.loc[idx, 'day']}日齢 ({df_result.loc[idx, 'date']})" for idx in range(len(df_result))]
+    # start_date等が変わってlabel_optionsの中身が変化した場合、以前の選択値が
+    # 新しいリストに存在しないことがあるため、安全にデフォルト位置へフォールバックする
+    if "act_date_select" in st.session_state and st.session_state["act_date_select"] not in label_options:
+        del st.session_state["act_date_select"]
+    act_label = st.selectbox("対象の日付を選択:", label_options, key="act_date_select")
+
+    target_day_idx = label_options.index(act_label)
+    act_date = df_result.loc[target_day_idx, "date"]
     stock_val = df_result.loc[target_day_idx, "pred_tank_morning"]
     
     # インフォメーションボックス
