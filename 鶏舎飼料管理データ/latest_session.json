@@ -1,15 +1,15 @@
 {
     "farm_name": "上川西農場",
-    "house_no": "A号",
-    "tank_no": "07",
-    "start_date": "2026-06-09",
-    "birds": 1800,
+    "house_no": "5号",
+    "tank_no": "03",
+    "start_date": "2026-05-09",
+    "birds": 6600,
     "shipping_age": 46,
-    "tank_cap": 7000,
-    "min_alert": 500,
+    "tank_cap": 5000,
+    "min_alert": 200,
     "first_qty": 5000,
     "std_qty": 4000,
-    "pre_limit": 6000,
+    "pre_limit": 5000,
     "mid_limit": 0,
     "records": {
         "0": {
