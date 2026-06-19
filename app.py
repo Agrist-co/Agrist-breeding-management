@@ -51,16 +51,22 @@ FONT_PATH = find_japanese_font()
 # ローカル実行時（secretsが無い場合）は、従来通りローカルフォルダに保存する。
 USE_GITHUB_STORAGE = False
 _gh_repo = None
+_gh_init_error = None
 try:
     if "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
         from github import Github, GithubException
         _gh_branch = st.secrets.get("GITHUB_BRANCH", "main")
         _gh_client = Github(st.secrets["GITHUB_TOKEN"])
         _gh_repo = _gh_client.get_repo(st.secrets["GITHUB_REPO"])
+        # 接続確認のため軽い呼び出しを行い、失敗すればここで例外が出る
+        _ = _gh_repo.full_name
         USE_GITHUB_STORAGE = True
-except Exception:
+    else:
+        _gh_init_error = "st.secrets に GITHUB_TOKEN または GITHUB_REPO が見つかりません。"
+except Exception as _e:
     USE_GITHUB_STORAGE = False
     _gh_repo = None
+    _gh_init_error = f"{type(_e).__name__}: {_e}"
 
 GH_DATA_PREFIX = "鶏舎飼料管理データ"  # GitHubリポジトリ内の保存先フォルダ名
 
@@ -431,6 +437,9 @@ with main_tabs[0]:
         mid_limit = st.number_input("中期飼料総量(kg):", value=_d.get("mid_limit", 10000), step=500, key="mid_limit")
 
     with st.expander("🛠️ デバッグ情報（不具合調査用・通常は無視してください）"):
+        st.write("USE_GITHUB_STORAGE:", USE_GITHUB_STORAGE)
+        st.write("GitHub接続エラー:", _gh_init_error)
+        st.write("接続先リポジトリ（secrets値）:", st.secrets.get("GITHUB_REPO", "(未設定)") if hasattr(st, "secrets") else "(取得不可)")
         st.write("loaded_params:", st.session_state.get("loaded_params"))
         st.write("現在のウィジェット値 → farm_name:", st.session_state.get("farm_name"),
                   " / start_date:", st.session_state.get("start_date"),
