@@ -18,5 +18,11 @@
             "type": "確定"
         }
     },
-    "adjustments": {}
+    "adjustments": {
+        "17": {
+            "delivered": 3000,
+            "actual_tank": 492,
+            "type": "調整配車"
+        }
+    }
 }
