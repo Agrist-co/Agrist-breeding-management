@@ -405,6 +405,18 @@ def pad_to_width(text, target_width, align='left'):
 # 🧱 Streamlit 画面構成（タブシステム）
 # ==============================================================================
 
+# 「過去データ読込」ボタンで保存された保留中のパラメータを、
+# ウィジェットがまだ1つも描画されていないこの時点でウィジェットキーへ反映する。
+# （ウィジェット描画後に session_state[key] を書き換えるとStreamlitAPIExceptionになるため、
+#   必ずウィジェットが呼ばれる前のこの場所で行う必要がある）
+if "_pending_params" in st.session_state:
+    _pp = st.session_state.pop("_pending_params")
+    for _k, _v in _pp.items():
+        st.session_state[_k] = _v
+if st.session_state.pop("_pending_clear_act_date", False):
+    if "act_date_select" in st.session_state:
+        del st.session_state["act_date_select"]
+
 # 直前の保存・読込操作の結果メッセージ（タブ切り替えやrerun後も確実に見えるよう、タブの外側・最上部で表示する）
 if "flash_message" in st.session_state:
     _msg_type, _msg_text = st.session_state["flash_message"]
@@ -506,28 +518,30 @@ with main_tabs[0]:
                             loaded = json.load(f)
                     st.session_state.current_records = {int(k): v for k, v in loaded["records"].items()}
                     st.session_state.current_adjustments = {int(k): v for k, v in loaded.get("adjustments", {}).items()}
-                    # 入力欄（農場名・入雛日など）に直接反映させる。
-                    # key付きウィジェットは2回目以降value引数を無視するため、
-                    # 該当するsession_state[key]を直接書き換える方式にする（valueでの初期化に頼らない）。
+                    # 入力欄（農場名・入雛日など）に反映させたいが、ウィジェットが既に描画済みの
+                    # session_state[key] を直接書き換えることはStreamlitの仕様上できない。
+                    # そのため「_pending_params」に保存しておき、次回スクリプト実行の冒頭
+                    # （ウィジェットがまだ描画される前）でウィジェットキーへ移し替える。
                     loaded_start_date_str = loaded.get("start_date", sel_date)
                     try:
                         loaded_start_date_obj = datetime.strptime(loaded_start_date_str, "%Y-%m-%d").date()
                     except Exception:
                         loaded_start_date_obj = date(2026, 6, 9)
-                    st.session_state["farm_name"] = loaded.get("farm_name", sel_farm)
-                    st.session_state["house_no"] = loaded.get("house_no", sel_house)
-                    st.session_state["tank_no"] = loaded.get("tank_no", sel_tank)
-                    st.session_state["start_date"] = loaded_start_date_obj
-                    st.session_state["birds"] = loaded.get("birds", 6600)
-                    st.session_state["shipping_age"] = loaded.get("shipping_age", 46)
-                    st.session_state["tank_cap"] = loaded.get("tank_cap", 7000)
-                    st.session_state["min_alert"] = loaded.get("min_alert", 500)
-                    st.session_state["first_qty"] = loaded.get("first_qty", 5000)
-                    st.session_state["std_qty"] = loaded.get("std_qty", 4000)
-                    st.session_state["pre_limit"] = loaded.get("pre_limit", 6000)
-                    st.session_state["mid_limit"] = loaded.get("mid_limit", 10000)
-                    if "act_date_select" in st.session_state:
-                        del st.session_state["act_date_select"]
+                    st.session_state["_pending_params"] = {
+                        "farm_name": loaded.get("farm_name", sel_farm),
+                        "house_no": loaded.get("house_no", sel_house),
+                        "tank_no": loaded.get("tank_no", sel_tank),
+                        "start_date": loaded_start_date_obj,
+                        "birds": loaded.get("birds", 6600),
+                        "shipping_age": loaded.get("shipping_age", 46),
+                        "tank_cap": loaded.get("tank_cap", 7000),
+                        "min_alert": loaded.get("min_alert", 500),
+                        "first_qty": loaded.get("first_qty", 5000),
+                        "std_qty": loaded.get("std_qty", 4000),
+                        "pre_limit": loaded.get("pre_limit", 6000),
+                        "mid_limit": loaded.get("mid_limit", 10000),
+                    }
+                    st.session_state["_pending_clear_act_date"] = True
                     st.session_state["flash_message"] = (
                         "success",
                         f"📂 読込: {sel_farm}/{sel_house}/{sel_tank}/{sel_date} → "
