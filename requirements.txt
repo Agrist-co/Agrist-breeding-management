@@ -4,4 +4,4 @@ numpy
 matplotlib
 pillow
 PyGithub
-supabase==2.3.4
+supabase==1.2.0
