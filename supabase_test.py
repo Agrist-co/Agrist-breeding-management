@@ -1,52 +1,48 @@
 """
-Supabase接続テスト
-既存app.pyとは別ファイルとして配置して動作確認に使う
+Supabase接続テスト（v2: lots/flock_houses対応版）
 """
 
 import streamlit as st
+import pandas as pd
 
 st.title("🔌 Supabase接続テスト")
 
 # ----------------------------------------------------------
-# 1. supabase-py クライアントの初期化
+# 1. Supabaseクライアント初期化
 # ----------------------------------------------------------
 try:
     from supabase import create_client, Client
-
     url = st.secrets["supabase"]["url"]
     key = st.secrets["supabase"]["key"]
     supabase: Client = create_client(url, key)
     st.success("✅ Supabaseクライアント初期化OK")
-
 except ImportError:
-    st.error("❌ supabase-py がインストールされていません。requirements.txtに追加してください。")
-    st.code("supabase==2.3.4", language="text")
+    st.error("❌ supabase-py がインストールされていません")
     st.stop()
-
 except KeyError as e:
     st.error(f"❌ secrets.tomlの設定が見つかりません: {e}")
     st.stop()
-
 except Exception as e:
     st.error(f"❌ 接続エラー: {e}")
     st.stop()
 
 # ----------------------------------------------------------
-# 2. マスタデータ取得テスト
+# 2. テーブル確認
 # ----------------------------------------------------------
-st.subheader("📊 マスタデータ確認")
+st.subheader("📊 テーブル確認")
 
 tests = [
-    ("ross308_standard",       "Ross308標準データ"),
-    ("ross308_carcass_yield",  "枝肉歩留りデータ"),
-    ("ross_comfort_temp",      "快適温度データ"),
-    ("feed_correction_factors","暑熱補正係数"),
-    ("farms",                  "農場マスタ"),
-    ("houses",                 "鶏舎マスタ"),
-    ("feed_brands",            "飼料銘柄マスタ"),
-    ("workers",                "担当者マスタ"),
-    ("flocks",                 "飼養ロット"),
-    ("daily_records",          "日次記録"),
+    ("ross308_standard",        "Ross308標準データ"),
+    ("ross308_carcass_yield",   "枝肉歩留りデータ"),
+    ("ross_comfort_temp",       "快適温度データ"),
+    ("feed_correction_factors", "暑熱補正係数"),
+    ("farms",                   "農場マスタ"),
+    ("houses",                  "鶏舎マスタ"),
+    ("feed_brands",             "飼料銘柄マスタ"),
+    ("workers",                 "担当者マスタ"),
+    ("lots",                    "ロット"),
+    ("flock_houses",            "鶏舎割当"),
+    ("daily_records",           "日次記録"),
 ]
 
 for table, label in tests:
@@ -69,11 +65,8 @@ try:
         .lte("day", 7) \
         .order("day") \
         .execute()
-
-    import pandas as pd
     df = pd.DataFrame(res.data)
     df.columns = ["日齢", "体重(g)", "採食量(g/羽)", "FCR"]
     st.dataframe(df, use_container_width=True)
-
 except Exception as e:
     st.error(f"データ取得エラー: {e}")
