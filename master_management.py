@@ -41,15 +41,15 @@ def delete(table: str, id_col: str, id_val):
 # ----------------------------------------------------------
 # UI
 # ----------------------------------------------------------
-st.title("🏭 マスタデータ管理")
+st.title("⚙️ マスタデータ管理")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🌾 農場", "🏠 鶏舎", "👷 担当者", "🌽 飼料銘柄"])
+tab1, tab2, tab3, tab4 = st.tabs(["🗺️ 農場", "🏗️ 鶏舎", "🪪 担当者", "📦 飼料銘柄"])
 
 # ==========================================================
 # タブ1: 農場マスタ
 # ==========================================================
 with tab1:
-    st.subheader("農場マスタ")
+    st.subheader("📡 農場マスタ")
 
     farms = fetch("farms", "farm_id")
     farm_map = {f["farm_id"]: f["farm_name"] for f in farms}
@@ -60,7 +60,7 @@ with tab1:
     if mode == "新規登録":
         col1, col2 = st.columns([1, 1])
         with col1:
-            st.markdown("#### 新規登録")
+            st.markdown("#### ➕ 新規登録")
             farm_name = st.text_input("農場名", key="farm_name_new")
             farm_address = st.text_input("所在地（任意）", key="farm_address_new")
             if st.button("登録", key="add_farm"):
@@ -80,7 +80,7 @@ with tab1:
         else:
             col1, col2 = st.columns([1, 1])
             with col1:
-                st.markdown("#### 編集")
+                st.markdown("#### ✏️ 編集")
                 edit_id = st.selectbox(
                     "編集する農場",
                     [f["farm_id"] for f in farms],
@@ -110,7 +110,7 @@ with tab1:
         else:
             col1, col2 = st.columns([1, 1])
             with col1:
-                st.markdown("#### 削除")
+                st.markdown("#### 🗑️ 削除")
                 del_id = st.selectbox(
                     "削除する農場",
                     [f["farm_id"] for f in farms],
@@ -128,7 +128,7 @@ with tab1:
 
     # 一覧表示（常時）
     st.divider()
-    st.markdown("#### 登録済み農場一覧")
+    st.markdown("#### 📋 登録済み農場一覧")
     farms = fetch("farms", "farm_id")
     if farms:
         df = pd.DataFrame(farms)[["farm_id", "farm_name", "address"]]
@@ -141,7 +141,7 @@ with tab1:
 # タブ2: 鶏舎マスタ
 # ==========================================================
 with tab2:
-    st.subheader("鶏舎マスタ")
+    st.subheader("🏗️ 鶏舎マスタ")
 
     farms = fetch("farms", "farm_id")
     if not farms:
@@ -157,7 +157,7 @@ with tab2:
         if mode == "新規登録":
             col1, col2 = st.columns([1, 1])
             with col1:
-                st.markdown("#### 新規登録")
+                st.markdown("#### ➕ 新規登録")
                 selected_farm = st.selectbox("農場", list(farm_options.keys()), key="house_farm_new")
                 house_name = st.text_input("鶏舎名", key="house_name_new")
                 tank_number = st.text_input("タンク番号", key="tank_number_new")
@@ -189,7 +189,7 @@ with tab2:
             else:
                 col1, col2 = st.columns([1, 1])
                 with col1:
-                    st.markdown("#### 編集")
+                    st.markdown("#### ✏️ 編集")
                     edit_id = st.selectbox(
                         "編集する鶏舎",
                         [h["house_id"] for h in houses],
@@ -226,7 +226,7 @@ with tab2:
             else:
                 col1, col2 = st.columns([1, 1])
                 with col1:
-                    st.markdown("#### 削除")
+                    st.markdown("#### 🗑️ 削除")
                     del_id = st.selectbox(
                         "削除する鶏舎",
                         [h["house_id"] for h in houses],
@@ -244,7 +244,7 @@ with tab2:
 
         # 一覧表示
         st.divider()
-        st.markdown("#### 登録済み鶏舎一覧")
+        st.markdown("#### 📋 登録済み鶏舎一覧")
         houses = fetch("houses", "house_id")
         if houses:
             df = pd.DataFrame(houses)
@@ -260,7 +260,7 @@ with tab2:
 # タブ3: 担当者マスタ
 # ==========================================================
 with tab3:
-    st.subheader("担当者マスタ")
+    st.subheader("🪪 担当者マスタ")
 
     farms = fetch("farms", "farm_id")
     farm_options = {f["farm_name"]: f["farm_id"] for f in farms} if farms else {}
@@ -273,7 +273,7 @@ with tab3:
     if mode == "新規登録":
         col1, col2 = st.columns([1, 1])
         with col1:
-            st.markdown("#### 新規登録")
+            st.markdown("#### ➕ 新規登録")
             worker_name = st.text_input("担当者名", key="worker_name_new")
             worker_farm = st.selectbox("主所属農場（任意）",
                 ["未設定"] + list(farm_options.keys()), key="worker_farm_new")
@@ -298,7 +298,7 @@ with tab3:
         else:
             col1, col2 = st.columns([1, 1])
             with col1:
-                st.markdown("#### 編集")
+                st.markdown("#### ✏️ 編集")
                 edit_id = st.selectbox("編集する担当者",
                     [w["worker_id"] for w in workers],
                     format_func=lambda x: worker_map[x], key="worker_edit_id")
@@ -328,7 +328,7 @@ with tab3:
         else:
             col1, col2 = st.columns([1, 1])
             with col1:
-                st.markdown("#### 削除")
+                st.markdown("#### 🗑️ 削除")
                 del_id = st.selectbox("削除する担当者",
                     [w["worker_id"] for w in workers],
                     format_func=lambda x: worker_map[x], key="worker_del_id")
@@ -341,7 +341,7 @@ with tab3:
                         st.error(f"削除エラー: {e}")
 
     st.divider()
-    st.markdown("#### 登録済み担当者一覧")
+    st.markdown("#### 📋 登録済み担当者一覧")
     workers = fetch("workers", "worker_id")
     if workers:
         df = pd.DataFrame(workers)
@@ -356,7 +356,7 @@ with tab3:
 # タブ4: 飼料銘柄マスタ
 # ==========================================================
 with tab4:
-    st.subheader("飼料銘柄マスタ")
+    st.subheader("📦 飼料銘柄マスタ")
 
     brands = fetch("feed_brands", "feed_brand_id")
     brand_map = {b["feed_brand_id"]: b["brand_name"] for b in brands}
@@ -367,7 +367,7 @@ with tab4:
     if mode == "新規登録":
         col1, col2 = st.columns([1, 1])
         with col1:
-            st.markdown("#### 新規登録")
+            st.markdown("#### ➕ 新規登録")
             brand_name = st.text_input("銘柄名", key="brand_name_new")
             manufacturer = st.text_input("メーカー（任意）", key="manufacturer_new")
             feed_type = st.selectbox("飼料種別", FEED_TYPES, key="feed_type_new")
@@ -393,7 +393,7 @@ with tab4:
         else:
             col1, col2 = st.columns([1, 1])
             with col1:
-                st.markdown("#### 編集")
+                st.markdown("#### ✏️ 編集")
                 edit_id = st.selectbox("編集する銘柄",
                     [b["feed_brand_id"] for b in brands],
                     format_func=lambda x: brand_map[x], key="brand_edit_id")
@@ -423,7 +423,7 @@ with tab4:
         else:
             col1, col2 = st.columns([1, 1])
             with col1:
-                st.markdown("#### 削除")
+                st.markdown("#### 🗑️ 削除")
                 del_id = st.selectbox("削除する銘柄",
                     [b["feed_brand_id"] for b in brands],
                     format_func=lambda x: brand_map[x], key="brand_del_id")
@@ -437,7 +437,7 @@ with tab4:
                         st.error(f"削除エラー: {e}")
 
     st.divider()
-    st.markdown("#### 登録済み飼料銘柄一覧")
+    st.markdown("#### 📋 登録済み飼料銘柄一覧")
     brands = fetch("feed_brands", "feed_brand_id")
     if brands:
         df = pd.DataFrame(brands)[["feed_brand_id", "brand_name", "manufacturer", "feed_type", "is_active"]]
