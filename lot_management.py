@@ -11,6 +11,31 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="ロット・鶏舎割当管理", layout="wide")
 
+# ----------------------------------------------------------
+# コンパクトCSS
+# ----------------------------------------------------------
+st.markdown("""
+<style>
+h1 { font-size: 1.2rem !important; margin-bottom: 0.2rem !important; }
+h2 { font-size: 1.0rem !important; margin-bottom: 0.2rem !important; }
+h3 { font-size: 0.95rem !important; margin-bottom: 0.1rem !important; }
+h4 { font-size: 0.88rem !important; margin-bottom: 0.1rem !important; }
+.block-container { padding-top: 0.6rem !important; padding-bottom: 0.4rem !important; max-width: 100% !important; }
+.stNumberInput label, .stSelectbox label, .stTextArea label, .stDateInput label, .stCheckbox label { font-size: 0.76rem !important; margin-bottom: 0 !important; }
+.stNumberInput input, .stDateInput input { padding-top: 0.15rem !important; padding-bottom: 0.15rem !important; font-size: 0.82rem !important; }
+.stSelectbox div[data-baseweb="select"] { font-size: 0.82rem !important; }
+.stTextArea textarea { font-size: 0.82rem !important; }
+[data-testid="metric-container"] label { font-size: 0.70rem !important; }
+[data-testid="metric-container"] [data-testid="stMetricValue"] { font-size: 0.95rem !important; }
+.stAlert { padding: 0.3rem 0.5rem !important; font-size: 0.78rem !important; }
+.stButton button { padding: 0.2rem 0.7rem !important; font-size: 0.82rem !important; }
+hr { margin: 0.3rem 0 !important; }
+.stCaption, [data-testid="stCaptionContainer"] { font-size: 0.70rem !important; }
+.stTabs [data-baseweb="tab"] { font-size: 0.80rem !important; padding: 0.25rem 0.7rem !important; }
+div[data-testid="stVerticalBlock"] > div { gap: 0.15rem !important; }
+</style>
+""", unsafe_allow_html=True)
+
 @st.cache_resource
 def get_supabase() -> Client:
     url = st.secrets["supabase"]["url"]
