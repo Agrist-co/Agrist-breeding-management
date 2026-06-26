@@ -29,10 +29,15 @@ h4 { font-size: 0.88rem !important; margin-bottom: 0.1rem !important; }
     font-size: 0.76rem !important;
     margin-bottom: 0 !important;
 }
-.stNumberInput input, .stDateInput input {
+.stNumberInput input {
     padding-top: 0.15rem !important;
     padding-bottom: 0.15rem !important;
     font-size: 0.82rem !important;
+}
+.stDateInput input {
+    font-size: 1.05rem !important;
+    font-weight: 700 !important;
+    color: #111 !important;
 }
 .stSelectbox div[data-baseweb="select"] { font-size: 0.82rem !important; }
 .stTextArea textarea { font-size: 0.82rem !important; }
@@ -221,7 +226,7 @@ with tab1:
     st.markdown(
         f"""<div style="display:flex;gap:1.2rem;align-items:center;
             background:#f0f2f6;border-radius:6px;padding:4px 10px;
-            font-size:0.72rem;color:#444;margin-bottom:4px;">
+            font-size:0.85rem;color:#333;margin-bottom:4px;">
             <span>📅 <b>日齢</b>: {age_days} 日</span>
             <span>🐔 <b>残存（管理）</b>: {total_rem:,} 羽</span>
             <span>📊 <b>残存（成績）</b>: {perf_rem:,} 羽</span>
@@ -248,7 +253,6 @@ with tab1:
             value=int(v("culling_count",   0)), step=1, key="dr_cull")
         today_total = total_rem - mortality - culling
         today_perf  = perf_rem  - mortality - culling
-        st.info(f"本日の残存　管理用: **{today_total:,} 羽**　成績用: **{today_perf:,} 羽**")
 
         st.markdown("**舎内環境**")
         house_temp_max = st.number_input("舎内最高温度（℃）",
