@@ -191,7 +191,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             s, e = sorted_act[i], sorted_act[i+1]
             s_tank = act_dict[s]["actual_tank"]
             e_tank = act_dict[e]["actual_tank"]
-            consumed = s_tank + sum(act_dict[d]["delivered"] for d in range(s+1, e+1) if d in act_dict) - e_tank
+            consumed = s_tank + sum(act_dict[d].get("delivered", 0) for d in range(s+1, e+1) if d in act_dict) - e_tank
             std_cons = df.loc[s:e-1, "std_feed_kg"].sum()
             rate = consumed / std_cons if std_cons > 0 else 1.0
             latest_rate = rate
