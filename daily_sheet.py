@@ -182,7 +182,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
 
     # 区間補正率
     adj_rates   = np.ones(len(df))
-    actual_feed = df["std_feed_kg"].copy().values
+    actual_feed = df["std_feed_kg"].values.copy()  # 書き込み可能なコピー
     sorted_act  = sorted(act_dict.keys())
     latest_rate = weighted_corr
 
