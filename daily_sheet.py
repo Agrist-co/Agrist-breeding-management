@@ -73,7 +73,7 @@ def get_ross308(age):
 # ----------------------------------------------------------
 st.title("📋 日次入力シート")
 
-c1, c2, c3 = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
 with c1:
     sel_farm    = st.selectbox("農場", list(farm_opts.keys()), key="s_farm")
     sel_farm_id = farm_opts[sel_farm]
@@ -95,6 +95,27 @@ with c3:
         format_func=lambda x: house_map.get(
             next(fh["house_id"] for fh in lot_fhs if fh["flock_house_id"] == x), ""),
         key="s_fh")
+with c4:
+    # 入雛日：選択した鶏舎に紐づく入雛日を表示（同一鶏舎で複数回転ある場合も対応）
+    sel_fh_tmp    = next(fh for fh in lot_fhs if fh["flock_house_id"] == sel_fh_id)
+    default_chick = sel_fh_tmp.get("chick_in_date", "")
+    # 同一ロット・同一鶏舎の複数入雛日がある場合に備えてリスト化
+    chick_dates = sorted(set(
+        fh["chick_in_date"] for fh in lot_fhs
+        if fh["flock_house_id"] == sel_fh_id
+        or (fh["house_id"] == sel_fh_tmp["house_id"] and fh["lot_number_id"] == sel_ln_id)
+    ))
+    sel_chick_date = st.selectbox("入雛日",
+        chick_dates,
+        index=chick_dates.index(default_chick) if default_chick in chick_dates else 0,
+        key="s_chick_date")
+    # 入雛日で絞り込んだflock_houseを確定
+    sel_fh_id = next(
+        (fh["flock_house_id"] for fh in lot_fhs
+         if fh["flock_house_id"] == sel_fh_id
+         and fh["chick_in_date"] == sel_chick_date),
+        sel_fh_id
+    )
 
 sel_fh    = next(fh for fh in lot_fhs if fh["flock_house_id"] == sel_fh_id)
 sel_house = next((h for h in houses if h["house_id"] == sel_fh["house_id"]), {})
@@ -189,8 +210,8 @@ for age in range(0, planned_age + 1):
         "月日":        rec_date.strftime("%m/%d"),
         "斃死":        mort if rec else None,
         "淘汰":        cull if rec else None,
-        "合計":        (mort + cull) if rec else None,
-        "残羽数":      remain_count if rec else None,
+        "合計":        total_loss,      # 入雛日からの累計（斃死+淘汰）
+        "残羽数":      remain_count,    # 入雛羽数+スペア−累計損耗
         "舎内最高℃":  rec.get("house_temp_max"),
         "舎内最低℃":  rec.get("house_temp_min"),
         "湿度%":       rec.get("house_humidity"),
