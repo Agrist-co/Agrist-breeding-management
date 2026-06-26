@@ -675,14 +675,40 @@ with tab3:
         import matplotlib.pyplot as plt
         import matplotlib.font_manager as fm
         import numpy as np
+        import os, urllib.request
 
-        # 日本語フォント設定（文字化け対策）
-        jp_fonts = [f.name for f in fm.fontManager.ttflist
-                    if any(k in f.name for k in ["Noto", "IPAex", "IPA", "Hiragino", "Yu Gothic", "Meiryo"])]
-        if jp_fonts:
-            plt.rcParams["font.family"] = jp_fonts[0]
-        else:
+        # 日本語フォント設定（Streamlit Cloud対応）
+        font_path = "/tmp/NotoSansJP.ttf"
+        if not os.path.exists(font_path):
+            try:
+                # IPAexゴシック（日本語対応・軽量）
+                urllib.request.urlretrieve(
+                    "https://moji.or.jp/wp-content/ipafont/IPAexfont/ipaexg00401.zip",
+                    "/tmp/ipaexg.zip"
+                )
+                import zipfile
+                with zipfile.ZipFile("/tmp/ipaexg.zip") as z:
+                    for name in z.namelist():
+                        if name.endswith(".ttf"):
+                            with z.open(name) as src, open(font_path, "wb") as dst:
+                                dst.write(src.read())
+                            break
+            except:
+                font_path = None
+
+        _use_jp_font = False
+        if font_path and os.path.exists(font_path):
+            try:
+                fm.fontManager.addfont(font_path)
+                prop = fm.FontProperties(fname=font_path)
+                plt.rcParams["font.family"] = prop.get_name()
+                _use_jp_font = True
+            except:
+                pass
+
+        if not _use_jp_font:
             plt.rcParams["font.family"] = "DejaVu Sans"
+            # フォントが使えない場合は英語ラベルを使用
 
         # 出荷日齢・横軸範囲
         x_max = int(g_fh_obj.get("planned_shipment_age_days") or 56)
@@ -700,11 +726,11 @@ with tab3:
             fig, ax = plt.subplots(figsize=(10, 4))
             w = df[df["avg_body_weight"].notna()]
             ax.plot(w["日齢"], w["avg_body_weight"], "o-",
-                    label="実績体重(g)", color="steelblue", linewidth=1.5)
+                    label="Actual (g)", color="steelblue", linewidth=1.5)
             ax.plot(std_ages, std_bw, "--",
-                    label="Ross308標準(g)", color="orange", alpha=0.8)
-            ax.set_ylabel("体重 (g)")
-            ax.set_title("体重推移（実績 vs Ross308標準）")
+                    label="Ross308 Standard (g)", color="orange", alpha=0.8)
+            ax.set_ylabel("Body Weight (g)")
+            ax.set_title("Body Weight - Actual vs Ross308")
 
         # ---- 採食量グラフ ----
         elif item == "採食量（実績 vs 標準）":
@@ -734,11 +760,11 @@ with tab3:
 
             df["実績採食量_g/羽"] = df.apply(per_bird_intake, axis=1)
             ax.bar(df["日齢"], df["実績採食量_g/羽"].fillna(0.0),
-                   label="実績(g/羽)", color="steelblue", alpha=0.7)
+                   label="Actual (g/bird)", color="steelblue", alpha=0.7)
             ax.plot(std_ages, std_fi, "--",
-                    label="Ross308標準(g/羽)", color="orange", linewidth=1.5)
-            ax.set_ylabel("1羽当たり採食量 (g/羽)")
-            ax.set_title("採食量推移（実績 vs Ross308標準）")
+                    label="Ross308 Standard (g/bird)", color="orange", linewidth=1.5)
+            ax.set_ylabel("Feed Intake per Bird (g)")
+            ax.set_title("Feed Intake per Bird - Actual vs Ross308")
 
         # ---- 斃死+淘汰率グラフ ----
         elif item == "斃死+淘汰数":
@@ -748,9 +774,9 @@ with tab3:
                 / chick_in_total * 100
             ).round(3)
             ax.bar(df["日齢"], df["斃死淘汰率%"], color="tomato", alpha=0.8,
-                   label="斃死+淘汰率(%)")
-            ax.set_ylabel("斃死+淘汰率 (%)")
-            ax.set_title("斃死・淘汰率推移（入雛羽数比）")
+                   label="Mort+Cull Rate (%)")
+            ax.set_ylabel("Mortality+Culling Rate (%)")
+            ax.set_title("Mortality + Culling Rate (%)")
 
         # ---- 温度・湿度グラフ（2軸） ----
         elif item == "温度・湿度":
@@ -758,9 +784,9 @@ with tab3:
             ax2 = ax.twinx()  # 第2軸（湿度用）
 
             ax.plot(df["日齢"], df["house_temp_max"], "r-",
-                    label="舎内最高℃", linewidth=1.5)
+                    label="House Max (C)", linewidth=1.5)
             ax.plot(df["日齢"], df["house_temp_min"], "b-",
-                    label="舎内最低℃", linewidth=1.5)
+                    label="House Min (C)", linewidth=1.5)
 
             # Ross308推奨温度（体重ベースで標準体重から逆算・簡易）
             # ross_comfort_tempテーブルから近似値を表示
@@ -774,18 +800,18 @@ with tab3:
                         closest = min(comfort_recs, key=lambda r: abs((r["body_weight_g"] or 0) - bw))
                         comfort_upper.append(closest.get("rh_60pct_temp_c"))
                     ax.plot(std_ages, comfort_upper, "r--", alpha=0.5,
-                            label="快適温度上限(RH60%)", linewidth=1)
+                            label="Comfort Temp Upper (RH60%)", linewidth=1)
             except:
                 pass
 
             ax2.plot(df["日齢"], df["house_humidity"], "g-",
-                     label="湿度%", linewidth=1.5, alpha=0.8)
-            ax2.set_ylabel("湿度 (%)", color="green")
+                     label="Humidity (%)", linewidth=1.5, alpha=0.8)
+            ax2.set_ylabel("Humidity (%)", color="green")
             ax2.tick_params(axis="y", labelcolor="green")
             ax2.set_ylim(0, 100)
 
-            ax.set_ylabel("温度 (℃)")
-            ax.set_title("温度・湿度推移")
+            ax.set_ylabel("Temperature (C)")
+            ax.set_title("Temperature & Humidity")
 
             # 凡例を統合
             lines1, labels1 = ax.get_legend_handles_labels()
@@ -793,7 +819,7 @@ with tab3:
             ax.legend(lines1 + lines2, labels1 + labels2,
                       loc="upper right", fontsize=8)
 
-        ax.set_xlabel("日齢 (日)")
+        ax.set_xlabel("Age (days)")
         ax.set_xlim(0, x_max)
         ax.set_xticks(x_ticks)
         ax.grid(True, alpha=0.3)
