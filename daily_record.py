@@ -472,14 +472,17 @@ with tab2:
         ]
 
         import streamlit as _st
+        # 記録日列を編集可能なDateColumnに変更（新規行追加対応）
+        edit_df["記録日"] = pd.to_datetime(edit_df["記録日"]).dt.date
+
         edited = st.data_editor(
             edit_df,
             use_container_width=True,
             hide_index=True,
-            num_rows="fixed",
+            num_rows="dynamic",          # ← 「+」ボタンで新規行追加可能
             column_config={
-                "id":       st.column_config.NumberColumn("id", disabled=True, width="small"),
-                "記録日":   st.column_config.DateColumn("記録日", disabled=True, width="small"),
+                "id":       None,  # id列を非表示
+                "記録日":   st.column_config.DateColumn("記録日", width="small"),
                 "日齢":     st.column_config.NumberColumn("日齢", disabled=True, width="small"),
                 "斃死":     st.column_config.NumberColumn("斃死", min_value=0, step=1, width="small"),
                 "淘汰":     st.column_config.NumberColumn("淘汰", min_value=0, step=1, width="small"),
@@ -499,37 +502,69 @@ with tab2:
             key="list_editor"
         )
 
-        st.caption(f"合計 {len(edit_df)} 件　セルを直接クリックして編集 → 「一括保存」で反映")
+        st.caption(f"合計 {len(edit_df)} 件　セルを直接編集・行末「＋」で新規追加 → 「一括保存」で反映")
 
         if st.button("💾 一括保存", key="list_save", type="primary"):
-            errors = []
+            errors  = []
             updated = 0
+            inserted = 0
+
+            # 元のIDセット（既存行の判定用）
+            original_ids = set(edit_df["id"].dropna().astype(int).tolist())
+
             for _, row in edited.iterrows():
+                row_id = row.get("id")
+                rec_date = row.get("記録日")
+
+                # 記録日が未入力の新規行はスキップ
+                if pd.isna(rec_date) or rec_date is None:
+                    continue
+
+                # 日齢を再計算
                 try:
-                    upd("daily_records", "daily_record_id", int(row["id"]), {
-                        "mortality_count":   int(row["斃死"]  or 0),
-                        "culling_count":     int(row["淘汰"]  or 0),
-                        "house_temp_max":    float(row["舎内最高℃"]) if pd.notna(row["舎内最高℃"]) else None,
-                        "house_temp_min":    float(row["舎内最低℃"]) if pd.notna(row["舎内最低℃"]) else None,
-                        "house_humidity":    float(row["湿度%"])     if pd.notna(row["湿度%"])     else None,
-                        "outside_temp_max":  float(row["外気最高℃"]) if pd.notna(row["外気最高℃"]) else None,
-                        "outside_temp_min":  float(row["外気最低℃"]) if pd.notna(row["外気最低℃"]) else None,
-                        "feed_intake":       float(row["採食量kg"])  if pd.notna(row["採食量kg"])  and float(row["採食量kg"] or 0) > 0 else None,
-                        "water_intake":      float(row["飲水量L"])   if pd.notna(row["飲水量L"])   and float(row["飲水量L"]  or 0) > 0 else None,
-                        "feed_delivery_qty": float(row["納品量kg"])  if pd.notna(row["納品量kg"])  and float(row["納品量kg"] or 0) > 0 else None,
-                        "feed_brand_id":     brand_opts.get(row["飼料銘柄"]) if row["飼料銘柄"] != "なし" else None,
-                        "avg_body_weight":   float(row["平均体重g"]) if pd.notna(row["平均体重g"]) and float(row["平均体重g"] or 0) > 0 else None,
-                        "work_log":          str(row["作業日誌"]) if pd.notna(row["作業日誌"]) and row["作業日誌"] else None,
-                        "worker_id":         worker_opts.get(row["担当者"]) if row["担当者"] != "未選択" else None,
-                    })
-                    updated += 1
+                    rd = rec_date if isinstance(rec_date, date) else date.fromisoformat(str(rec_date))
+                except:
+                    errors.append(f"日付エラー: {rec_date}")
+                    continue
+
+                data = {
+                    "flock_house_id":    l_fh_id,
+                    "record_date":       str(rd),
+                    "mortality_count":   int(row["斃死"]  or 0),
+                    "culling_count":     int(row["淘汰"]  or 0),
+                    "house_temp_max":    float(row["舎内最高℃"]) if pd.notna(row["舎内最高℃"]) else None,
+                    "house_temp_min":    float(row["舎内最低℃"]) if pd.notna(row["舎内最低℃"]) else None,
+                    "house_humidity":    float(row["湿度%"])     if pd.notna(row["湿度%"])     else None,
+                    "outside_temp_max":  float(row["外気最高℃"]) if pd.notna(row["外気最高℃"]) else None,
+                    "outside_temp_min":  float(row["外気最低℃"]) if pd.notna(row["外気最低℃"]) else None,
+                    "feed_intake":       float(row["採食量kg"])  if pd.notna(row["採食量kg"])  and float(row["採食量kg"] or 0) > 0 else None,
+                    "water_intake":      float(row["飲水量L"])   if pd.notna(row["飲水量L"])   and float(row["飲水量L"]  or 0) > 0 else None,
+                    "feed_delivery_qty": float(row["納品量kg"])  if pd.notna(row["納品量kg"])  and float(row["納品量kg"] or 0) > 0 else None,
+                    "feed_brand_id":     brand_opts.get(row["飼料銘柄"]) if pd.notna(row.get("飼料銘柄")) and row["飼料銘柄"] != "なし" else None,
+                    "avg_body_weight":   float(row["平均体重g"]) if pd.notna(row["平均体重g"]) and float(row["平均体重g"] or 0) > 0 else None,
+                    "work_log":          str(row["作業日誌"]) if pd.notna(row.get("作業日誌")) and row["作業日誌"] else None,
+                    "worker_id":         worker_opts.get(row["担当者"]) if pd.notna(row.get("担当者")) and row["担当者"] != "未選択" else None,
+                }
+
+                try:
+                    if pd.notna(row_id) and int(row_id) in original_ids:
+                        # 既存行 → UPDATE
+                        upd("daily_records", "daily_record_id", int(row_id), data)
+                        updated += 1
+                    else:
+                        # 新規行（idがNaN or 元のIDに存在しない）→ INSERT
+                        insert("daily_records", data)
+                        inserted += 1
                 except Exception as e:
-                    errors.append(f"{row['記録日']}: {e}")
+                    errors.append(f"{rd}: {e}")
 
             if errors:
                 st.error(f"エラー: {'; '.join(errors)}")
             else:
-                st.success(f"✅ {updated}件を保存しました")
+                msg = []
+                if updated  > 0: msg.append(f"更新 {updated}件")
+                if inserted > 0: msg.append(f"新規追加 {inserted}件")
+                st.success(f"✅ {' / '.join(msg)} を保存しました")
                 st.rerun()
 
 # ==========================================================
