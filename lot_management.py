@@ -296,10 +296,31 @@ with tab2:
             fh  = next(f for f in flock_houses if f["flock_house_id"] == sel_fh_id)
             fh_ln = next((ln for ln in lot_numbers if ln["lot_number_id"] == fh["lot_number_id"]), None)
 
-            # タンク番号表示
-            st.info(f"🗂️ タンク番号: **{tank_map.get(fh['house_id'],'未登録')}**")
-
             if mode2 == "編集":
+                # ロット番号変更
+                fh_farm_id   = fh_ln["farm_id"] if fh_ln else None
+                farm_lns_e   = [ln for ln in lot_numbers if ln["farm_id"] == fh_farm_id and ln["is_active"]] if fh_farm_id else lot_numbers
+                e_ln_id = st.selectbox("ロット番号",
+                    [ln["lot_number_id"] for ln in farm_lns_e],
+                    index=next((i for i, ln in enumerate(farm_lns_e) if ln["lot_number_id"] == fh["lot_number_id"]), 0),
+                    format_func=lambda x: next((ln["lot_number"] for ln in farm_lns_e if ln["lot_number_id"] == x), ""),
+                    key="e_ln")
+
+                # 鶏舎番号変更（農場で絞り込み）
+                e_filtered = [h for h in houses if h["farm_id"] == fh_farm_id] if fh_farm_id else houses
+                e_house_id = st.selectbox("鶏舎番号",
+                    [h["house_id"] for h in e_filtered],
+                    index=next((i for i, h in enumerate(e_filtered) if h["house_id"] == fh["house_id"]), 0),
+                    format_func=lambda x: house_map[x],
+                    key="e_house")
+
+                # タンク番号自動表示
+                st.info(
+                    f"🗂️ タンク番号: **{tank_map.get(e_house_id,'未登録')}**　｜　"
+                    f"飼養面積: **{area_map.get(e_house_id,'-')} 坪**　｜　"
+                    f"タンク容量: **{cap_map.get(e_house_id,'-')} kg**"
+                )
+
                 e_cd  = st.date_input("入雛日",
                     value=date.fromisoformat(fh["chick_in_date"]) if fh["chick_in_date"] else date.today(),
                     key="e_cd")
@@ -324,6 +345,8 @@ with tab2:
                 if st.button("更新", key="btn_update", type="primary"):
                     try:
                         update("flock_houses", "flock_house_id", sel_fh_id, {
+                            "lot_number_id":              e_ln_id,
+                            "house_id":                   e_house_id,
                             "chick_in_date":              str(e_cd),
                             "initial_feed_delivery_date": str(e_fd),
                             "initial_feed_delivery_qty":  e_fq or None,
