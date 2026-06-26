@@ -163,12 +163,6 @@ with tab1:
     with c4:
         record_date = st.date_input("記録日", value=date.today(), key="dr_date")
 
-    # ---- 対象が変わったらリセット ----
-    current_target = f"{sel_fh_id}_{record_date}"
-    if st.session_state.get("_last_target") != current_target:
-        reset_inputs()
-        st.session_state["_last_target"] = current_target
-
     # ---- 基本計算 ----
     sel_fh        = next(fh for fh in lot_fhs if fh["flock_house_id"] == sel_fh_id)
     chick_in_date = date.fromisoformat(sel_fh["chick_in_date"])
@@ -176,6 +170,28 @@ with tab1:
     prev_date     = record_date - timedelta(days=1)
     total_rem, perf_rem, total_mort, total_cull = get_remaining(sel_fh, prev_date)
     ross          = get_ross308(age_days)
+
+    # ---- 対象が変わったらリセット＋既存レコードを再取得 ----
+    current_target = f"{sel_fh_id}_{record_date}"
+    if st.session_state.get("_last_target") != current_target:
+        # セッションの入力値をクリア
+        reset_inputs()
+        # 新しい対象の既存レコードを取得してキャッシュ
+        existing = supabase.table("daily_records") \
+            .select("*") \
+            .eq("flock_house_id", sel_fh_id) \
+            .eq("record_date", str(record_date)) \
+            .execute().data
+        st.session_state["_cached_rec"] = existing[0] if existing else None
+        st.session_state["_last_target"] = current_target
+
+    # キャッシュから既存レコードを参照
+    rec = st.session_state.get("_cached_rec")
+
+    if rec:
+        st.info(f"✏️ {record_date} の記録が登録済みです。内容を編集できます。")
+    else:
+        st.caption(f"📋 {record_date} は未入力です。新規登録します。")
 
     # ---- サマリ表示 ----
     m1, m2, m3, m4, m5 = st.columns(5)
@@ -185,19 +201,8 @@ with tab1:
     m4.metric("累計斃死+淘汰",    f"{total_mort + total_cull:,} 羽")
     m5.metric("Ross308標準体重",  f"{ross.get('weight_g', '-')} g")
 
-    # ---- 既存レコード確認 ----
-    existing = supabase.table("daily_records") \
-        .select("*") \
-        .eq("flock_house_id", sel_fh_id) \
-        .eq("record_date", str(record_date)) \
-        .execute().data
-    rec = existing[0] if existing else None
-
-    if rec:
-        st.info(f"{record_date} の記録が既に存在します。編集できます。")
-
     def v(key, default=None):
-        """既存レコードの値 or デフォルト値を返す（セッションに残っていれば使わない）"""
+        """既存レコードの値 or デフォルト値を返す"""
         if rec and rec.get(key) is not None:
             return rec[key]
         return default
@@ -300,6 +305,11 @@ with tab1:
     with bcol2:
         if st.button("🔄 入力をクリア", key="btn_clear"):
             reset_inputs()
+            # 保存後はキャッシュをクリアして次入力に備える
+            if "_cached_rec" in st.session_state:
+                del st.session_state["_cached_rec"]
+            if "_last_target" in st.session_state:
+                del st.session_state["_last_target"]
             st.rerun()
 
     if save_btn:
@@ -330,6 +340,11 @@ with tab1:
                 st.success(f"✅ {record_date} の記録を保存しました（日齢: {age_days}日）")
             # 保存後は次の日付に切り替えやすいようリセット
             reset_inputs()
+            # 保存後はキャッシュをクリアして次入力に備える
+            if "_cached_rec" in st.session_state:
+                del st.session_state["_cached_rec"]
+            if "_last_target" in st.session_state:
+                del st.session_state["_last_target"]
             st.rerun()
         except Exception as e:
             st.error(f"保存エラー: {e}")
