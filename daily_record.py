@@ -673,71 +673,132 @@ with tab3:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        plt.rcParams["font.family"] = "DejaVu Sans"
-        fig, ax = plt.subplots(figsize=(10, 4))
+        import matplotlib.font_manager as fm
+        import numpy as np
 
+        # 日本語フォント設定（文字化け対策）
+        jp_fonts = [f.name for f in fm.fontManager.ttflist
+                    if any(k in f.name for k in ["Noto", "IPAex", "IPA", "Hiragino", "Yu Gothic", "Meiryo"])]
+        if jp_fonts:
+            plt.rcParams["font.family"] = jp_fonts[0]
+        else:
+            plt.rcParams["font.family"] = "DejaVu Sans"
+
+        # 出荷日齢・横軸範囲
+        x_max = int(g_fh_obj.get("planned_shipment_age_days") or 56)
+        x_ticks = list(range(0, x_max + 1, 7))
+        # Ross308標準データを0〜x_maxまで全日齢で生成
+        std_ages  = list(range(0, min(x_max + 1, 57)))
+        std_bw    = [get_ross308(a).get("weight_g")      for a in std_ages]
+        std_fi    = [get_ross308(a).get("daily_intake_g") for a in std_ages]
+
+        # 入雛羽数（斃死率計算用）
+        chick_in_total = (g_fh_obj["chick_in_count"] or 0)
+
+        # ---- 体重グラフ ----
         if item == "体重（実績 vs 標準）":
+            fig, ax = plt.subplots(figsize=(10, 4))
             w = df[df["avg_body_weight"].notna()]
-            ax.plot(w["日齢"], w["avg_body_weight"], "o-", label="実績体重(g)", color="steelblue")
-            ax.plot(df["日齢"], df["標準体重_g"], "--", label="Ross308標準(g)", color="orange", alpha=0.7)
+            ax.plot(w["日齢"], w["avg_body_weight"], "o-",
+                    label="実績体重(g)", color="steelblue", linewidth=1.5)
+            ax.plot(std_ages, std_bw, "--",
+                    label="Ross308標準(g)", color="orange", alpha=0.8)
             ax.set_ylabel("体重 (g)")
+            ax.set_title("体重推移（実績 vs Ross308標準）")
 
+        # ---- 採食量グラフ ----
         elif item == "採食量（実績 vs 標準）":
-            # 搬送係数・補正率を取得
+            fig, ax = plt.subplots(figsize=(10, 4))
             _g_h     = next((h for h in houses if h["house_id"] == g_fh_obj["house_id"]), {})
             _g_hcoef = float(_g_h.get("feed_transfer_coef") or 0)
             _g_ratio_map = {
                 b["feed_brand_id"]: float(b.get("transfer_coef_ratio") or 1.0)
                 for b in feed_brands
             }
-
-            # 日次の残存羽数を累積計算
+            # 残存羽数を累積計算
             cumulative_loss = 0
             remaining_list  = []
-            chick_in        = g_fh_obj["chick_in_count"] or 0
-            spare           = g_fh_obj["spare_count"]    or 0
-            total_initial   = chick_in + spare
+            spare = g_fh_obj["spare_count"] or 0
+            total_initial = chick_in_total + spare
             for _, row in df.iterrows():
                 cumulative_loss += (row["mortality_count"] or 0) + (row["culling_count"] or 0)
                 remaining_list.append(max(total_initial - cumulative_loss, 1))
             df["残存羽数"] = remaining_list
 
-            # 採食量(kg)を算出 → 1羽当たり採食量(g)に変換
             def per_bird_intake(r):
                 if pd.isna(r.get("feed_duration_min")) or _g_hcoef == 0:
                     return None
-                ratio      = _g_ratio_map.get(r.get("feed_brand_id"), 1.0)
-                intake_kg  = float(r["feed_duration_min"]) * _g_hcoef * ratio
-                remaining  = r["残存羽数"]
-                return round(intake_kg * 1000 / remaining, 2)  # kg→g/羽
+                ratio     = _g_ratio_map.get(r.get("feed_brand_id"), 1.0)
+                intake_kg = float(r["feed_duration_min"]) * _g_hcoef * ratio
+                return round(intake_kg * 1000 / r["残存羽数"], 2)
 
             df["実績採食量_g/羽"] = df.apply(per_bird_intake, axis=1)
-
-            # Ross308標準値（g/羽・as_hatchedから取得済み）
             ax.bar(df["日齢"], df["実績採食量_g/羽"].fillna(0.0),
-                   label="実績 (g/羽)", color="steelblue", alpha=0.7)
-            ax.plot(df["日齢"], df["標準採食量_g"], "--",
-                    label="Ross308標準 (g/羽)", color="orange")
+                   label="実績(g/羽)", color="steelblue", alpha=0.7)
+            ax.plot(std_ages, std_fi, "--",
+                    label="Ross308標準(g/羽)", color="orange", linewidth=1.5)
             ax.set_ylabel("1羽当たり採食量 (g/羽)")
+            ax.set_title("採食量推移（実績 vs Ross308標準）")
 
+        # ---- 斃死+淘汰率グラフ ----
         elif item == "斃死+淘汰数":
-            df["計"] = df["mortality_count"] + df["culling_count"]
-            ax.bar(df["日齢"], df["計"], color="tomato", alpha=0.8)
-            ax.set_ylabel("羽数")
+            fig, ax = plt.subplots(figsize=(10, 4))
+            df["斃死淘汰率%"] = (
+                (df["mortality_count"].fillna(0) + df["culling_count"].fillna(0))
+                / chick_in_total * 100
+            ).round(3)
+            ax.bar(df["日齢"], df["斃死淘汰率%"], color="tomato", alpha=0.8,
+                   label="斃死+淘汰率(%)")
+            ax.set_ylabel("斃死+淘汰率 (%)")
+            ax.set_title("斃死・淘汰率推移（入雛羽数比）")
 
+        # ---- 温度・湿度グラフ（2軸） ----
         elif item == "温度・湿度":
-            ax.plot(df["日齢"], df["house_temp_max"], "r-",  label="舎内最高℃")
-            ax.plot(df["日齢"], df["house_temp_min"], "b-",  label="舎内最低℃")
-            ax.plot(df["日齢"], df["house_humidity"], "g--", label="湿度%", alpha=0.7)
-            ax.set_ylabel("温度(℃) / 湿度(%)")
+            fig, ax = plt.subplots(figsize=(10, 4))
+            ax2 = ax.twinx()  # 第2軸（湿度用）
+
+            ax.plot(df["日齢"], df["house_temp_max"], "r-",
+                    label="舎内最高℃", linewidth=1.5)
+            ax.plot(df["日齢"], df["house_temp_min"], "b-",
+                    label="舎内最低℃", linewidth=1.5)
+
+            # Ross308推奨温度（体重ベースで標準体重から逆算・簡易）
+            # ross_comfort_tempテーブルから近似値を表示
+            try:
+                comfort_recs = supabase.table("ross_comfort_temp")                     .select("*").order("body_weight_g").execute().data
+                if comfort_recs:
+                    comfort_ages, comfort_upper = [], []
+                    for age in std_ages:
+                        bw = get_ross308(age).get("weight_g") or 0
+                        # 最近傍の快適温度上限（RH60%基準）を取得
+                        closest = min(comfort_recs, key=lambda r: abs((r["body_weight_g"] or 0) - bw))
+                        comfort_upper.append(closest.get("rh_60pct_temp_c"))
+                    ax.plot(std_ages, comfort_upper, "r--", alpha=0.5,
+                            label="快適温度上限(RH60%)", linewidth=1)
+            except:
+                pass
+
+            ax2.plot(df["日齢"], df["house_humidity"], "g-",
+                     label="湿度%", linewidth=1.5, alpha=0.8)
+            ax2.set_ylabel("湿度 (%)", color="green")
+            ax2.tick_params(axis="y", labelcolor="green")
+            ax2.set_ylim(0, 100)
+
+            ax.set_ylabel("温度 (℃)")
+            ax.set_title("温度・湿度推移")
+
+            # 凡例を統合
+            lines1, labels1 = ax.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax.legend(lines1 + lines2, labels1 + labels2,
+                      loc="upper right", fontsize=8)
 
         ax.set_xlabel("日齢 (日)")
-        # 横軸を0〜出荷計画日齢（未設定なら56日）に固定し7日ごとに目盛り
-        x_max = int(g_fh_obj.get("planned_shipment_age_days") or 56)
         ax.set_xlim(0, x_max)
-        ax.set_xticks(range(0, x_max + 1, 7))
-        ax.legend()
+        ax.set_xticks(x_ticks)
         ax.grid(True, alpha=0.3)
+        if item != "温度・湿度":
+            ax.legend()
         st.pyplot(fig)
         plt.close()
     else:
