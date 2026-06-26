@@ -471,7 +471,10 @@ with tab2:
             "飼料銘柄", "平均体重g", "作業日誌", "担当者"
         ]
 
-        import streamlit as _st
+        # 日齢列をint→string変換（Noneを空欄表示・新規行も空欄で見やすく）
+        edit_df["日齢"] = edit_df["日齢"].apply(
+            lambda x: str(int(x)) if pd.notna(x) else "")
+
         # 記録日列を編集可能なDateColumnに変更（新規行追加対応）
         edit_df["記録日"] = pd.to_datetime(edit_df["記録日"]).dt.date
 
@@ -483,7 +486,7 @@ with tab2:
             column_config={
                 "id":       None,  # id列を非表示
                 "記録日":   st.column_config.DateColumn("記録日", width="small"),
-                "日齢":     st.column_config.NumberColumn("日齢", disabled=True, width="small"),
+                "日齢":     st.column_config.TextColumn("日齢", disabled=True, width="small"),
                 "斃死":     st.column_config.NumberColumn("斃死", min_value=0, step=1, width="small"),
                 "淘汰":     st.column_config.NumberColumn("淘汰", min_value=0, step=1, width="small"),
                 "舎内最高℃": st.column_config.NumberColumn("舎内最高℃", step=0.1, width="small"),
@@ -502,7 +505,7 @@ with tab2:
             key="list_editor"
         )
 
-        st.caption(f"合計 {len(edit_df)} 件　セルを直接編集・行末「＋」で新規追加 → 「一括保存」で反映")
+        st.caption(f"合計 {len(edit_df)} 件　セルを直接編集・表末「＋」で新規行追加 → 記録日を入力後「一括保存」で日齢は自動計算されます")
 
         if st.button("💾 一括保存", key="list_save", type="primary"):
             errors  = []
@@ -553,6 +556,7 @@ with tab2:
                         updated += 1
                     else:
                         # 新規行（idがNaN or 元のIDに存在しない）→ INSERT
+                        # 日齢は入雛日から自動計算（保存時）
                         insert("daily_records", data)
                         inserted += 1
                 except Exception as e:
