@@ -228,8 +228,7 @@ with tab1:
             background:#f0f2f6;border-radius:6px;padding:4px 10px;
             font-size:0.85rem;color:#333;margin-bottom:4px;">
             <span>📅 <b>日齢</b>: {age_days} 日</span>
-            <span>🐔 <b>残存（管理）</b>: {total_rem:,} 羽</span>
-            <span>📊 <b>残存（成績）</b>: {perf_rem:,} 羽</span>
+            <span>🐔 <b>残存（実質）</b>: {total_rem:,} 羽</span>
             <span>💀 <b>累計斃死+淘汰</b>: {total_mort + total_cull:,} 羽</span>
             <span>⚖️ <b>Ross308標準体重</b>: {ross_wt} g</span>
         </div>""",
