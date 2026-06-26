@@ -230,7 +230,7 @@ with tab1:
             st.session_state["dr_ot_max"]     = float(rec.get("outside_temp_max") or 20.0)
             st.session_state["dr_ot_min"]     = float(rec.get("outside_temp_min") or 15.0)
             st.session_state["dr_fi"]         = float(rec.get("feed_duration_min") or 0.0)
-                    st.session_state["dr_wi"]         = float(rec.get("water_intake")     or 0.0)
+            st.session_state["dr_wi"]         = float(rec.get("water_intake")     or 0.0)
             st.session_state["dr_fd"]         = float(rec.get("feed_delivery_qty") or 0.0)
             st.session_state["dr_has_weight"] = rec.get("avg_body_weight") is not None
             st.session_state["dr_weight"]     = float(rec.get("avg_body_weight")  or 0.0)
