@@ -16,17 +16,27 @@ st.markdown("""
 h1 { font-size: 1.1rem !important; margin-bottom: 0.2rem !important; }
 .block-container { padding-top: 0.5rem !important; padding-bottom: 0.3rem !important; }
 .stSelectbox label, .stNumberInput label { font-size: 0.75rem !important; }
-/* ヘッダー情報ボックス */
+
+/* ヘッダー情報ボックス（少し大きく） */
 .header-box {
     background: #f0f4f8;
     border: 1px solid #c8d6e5;
     border-radius: 6px;
-    padding: 6px 12px;
+    padding: 8px 14px;
     margin-bottom: 6px;
-    font-size: 0.82rem;
+    font-size: 0.95rem;
+    line-height: 2.0;
 }
-.header-box b { color: #1a5276; }
-.header-val { color: #222; font-weight: 600; }
+.header-box b { color: #1a5276; font-size: 0.88rem; }
+.header-val { color: #111; font-weight: 700; font-size: 0.98rem; }
+
+/* data_editorの列ヘッダー（表題）を小さく */
+div[data-testid="stDataFrameResizable"] th,
+div[data-testid="stDataFrameResizable"] [data-testid="column-header-cell"] {
+    font-size: 0.68rem !important;
+    padding: 2px 4px !important;
+    line-height: 1.2 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
