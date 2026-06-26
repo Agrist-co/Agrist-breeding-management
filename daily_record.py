@@ -398,10 +398,10 @@ with tab1:
             st.error(f"保存エラー: {e}")
 
 # ==========================================================
-# タブ2: 記録一覧
+# タブ2: 記録一覧（インライン編集）
 # ==========================================================
 with tab2:
-    st.markdown("#### 📋 記録一覧")
+    st.markdown("#### 📋 記録一覧・編集")
 
     if not farms:
         st.stop()
@@ -433,28 +433,165 @@ with tab2:
         .select("*").eq("flock_house_id", l_fh_id) \
         .order("record_date").execute().data
 
-    if recs:
-        l_fh_obj   = next(fh for fh in l_fhs if fh["flock_house_id"] == l_fh_id)
-        chick_dt   = date.fromisoformat(l_fh_obj["chick_in_date"])
-        df         = pd.DataFrame(recs)
+    if not recs:
+        st.info("記録がありません")
+    else:
+        l_fh_obj = next(fh for fh in l_fhs if fh["flock_house_id"] == l_fh_id)
+        chick_dt = date.fromisoformat(l_fh_obj["chick_in_date"])
+
+        # ---- 一覧テーブル ----
+        df = pd.DataFrame(recs)
         df["日齢"] = df["record_date"].apply(
             lambda d: (date.fromisoformat(d) - chick_dt).days)
         df["銘柄"]   = df["feed_brand_id"].map(brand_map).fillna("-")
         df["担当者"] = df["worker_id"].map(worker_map).fillna("-")
-        df = df[["record_date","日齢","mortality_count","culling_count",
-                 "house_temp_max","house_temp_min","house_humidity",
-                 "outside_temp_max","outside_temp_min",
-                 "feed_intake","water_intake","feed_delivery_qty",
-                 "銘柄","avg_body_weight","work_log","担当者"]]
-        df.columns = ["記録日","日齢","斃死","淘汰",
-                      "舎内最高℃","舎内最低℃","湿度%",
-                      "外気最高℃","外気最低℃",
-                      "採食量kg","飲水量L","納品量kg",
-                      "飼料銘柄","平均体重g","作業日誌","担当者"]
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        st.caption(f"合計 {len(df)} 件")
-    else:
-        st.info("記録がありません")
+        disp = df[["record_date","日齢","mortality_count","culling_count",
+                   "house_temp_max","house_temp_min","house_humidity",
+                   "outside_temp_max","outside_temp_min",
+                   "feed_intake","water_intake","feed_delivery_qty",
+                   "銘柄","avg_body_weight","work_log","担当者"]].copy()
+        disp.columns = ["記録日","日齢","斃死","淘汰",
+                        "舎内最高℃","舎内最低℃","湿度%",
+                        "外気最高℃","外気最低℃",
+                        "採食量kg","飲水量L","納品量kg",
+                        "飼料銘柄","平均体重g","作業日誌","担当者"]
+        st.dataframe(disp, use_container_width=True, hide_index=True)
+        st.caption(f"合計 {len(disp)} 件　　編集する記録日を選択してください")
+
+        # ---- 編集する行を選択 ----
+        date_options = [r["record_date"] for r in recs]
+        sel_edit_date = st.selectbox("編集する記録日",
+            date_options,
+            format_func=lambda d: f"{d}（日齢: {(date.fromisoformat(d) - chick_dt).days}日）",
+            key="list_edit_date")
+
+        edit_rec = next(r for r in recs if r["record_date"] == sel_edit_date)
+        edit_age = (date.fromisoformat(sel_edit_date) - chick_dt).days
+        edit_ross = get_ross308(edit_age)
+
+        # ---- インライン編集フォーム ----
+        with st.expander(f"✏️ {sel_edit_date}（日齢 {edit_age}日）の編集", expanded=True):
+            ec1, ec2 = st.columns(2)
+
+            with ec1:
+                st.markdown("**羽数**")
+                e_mort = st.number_input("斃死数",  min_value=0,
+                    value=int(edit_rec.get("mortality_count") or 0), step=1, key="le_mort")
+                e_cull = st.number_input("淘汰数",  min_value=0,
+                    value=int(edit_rec.get("culling_count")   or 0), step=1, key="le_cull")
+
+                st.markdown("**舎内環境**")
+                e_ht_max = st.number_input("舎内最高温度（℃）",
+                    min_value=-10.0, max_value=50.0,
+                    value=float(edit_rec.get("house_temp_max") or 25.0), step=0.1, key="le_ht_max")
+                e_ht_min = st.number_input("舎内最低温度（℃）",
+                    min_value=-10.0, max_value=50.0,
+                    value=float(edit_rec.get("house_temp_min") or 20.0), step=0.1, key="le_ht_min")
+                e_hum    = st.number_input("湿度（%）",
+                    min_value=0.0, max_value=100.0,
+                    value=float(edit_rec.get("house_humidity") or 60.0), step=1.0, key="le_hum")
+
+                st.markdown("**外気**")
+                e_ot_max = st.number_input("外気最高温度（℃）",
+                    min_value=-20.0, max_value=45.0,
+                    value=float(edit_rec.get("outside_temp_max") or 20.0), step=0.1, key="le_ot_max")
+                e_ot_min = st.number_input("外気最低温度（℃）",
+                    min_value=-20.0, max_value=45.0,
+                    value=float(edit_rec.get("outside_temp_min") or 15.0), step=0.1, key="le_ot_min")
+
+            with ec2:
+                st.markdown("**飼料・飲水**")
+                e_fi = st.number_input("採食量（kg）",
+                    min_value=0.0, value=float(edit_rec.get("feed_intake")  or 0.0),
+                    step=10.0, key="le_fi")
+                e_wi = st.number_input("飲水量（L）",
+                    min_value=0.0, value=float(edit_rec.get("water_intake") or 0.0),
+                    step=10.0, key="le_wi")
+
+                if edit_ross and edit_ross.get("daily_intake_g"):
+                    std_kg = edit_ross["daily_intake_g"] / 1000 * l_fh_obj["chick_in_count"]
+                    diff = e_fi - std_kg
+                    diff_pct = diff / std_kg * 100 if std_kg > 0 else 0
+                    icon = "🟢" if abs(diff_pct) <= 5 else ("🔴" if diff_pct < -5 else "🟡")
+                    st.caption(f"Ross308標準: **{std_kg:.1f} kg**　{icon} {diff:+.1f} kg（{diff_pct:+.1f}%）")
+
+                e_fd = st.number_input("飼料納品量（kg）",
+                    min_value=0.0, value=float(edit_rec.get("feed_delivery_qty") or 0.0),
+                    step=100.0, key="le_fd")
+
+                if feed_brands:
+                    e_brand_names   = ["なし"] + list(brand_opts.keys())
+                    e_current_brand = brand_map.get(edit_rec.get("feed_brand_id"), "なし")
+                    e_sel_brand     = st.selectbox("納品飼料銘柄", e_brand_names,
+                        index=e_brand_names.index(e_current_brand) if e_current_brand in e_brand_names else 0,
+                        key="le_brand")
+                else:
+                    e_sel_brand = "なし"
+
+                st.markdown("**平均体重**")
+                e_has_wt = st.checkbox("体重測定あり",
+                    value=edit_rec.get("avg_body_weight") is not None, key="le_has_wt")
+                e_weight = None
+                if e_has_wt:
+                    e_weight = st.number_input("平均体重（g）",
+                        min_value=0.0,
+                        value=float(edit_rec.get("avg_body_weight") or edit_ross.get("weight_g") or 0),
+                        step=10.0, key="le_weight")
+                    if edit_ross and edit_ross.get("weight_g"):
+                        diff_w = e_weight - edit_ross["weight_g"]
+                        diff_w_pct = diff_w / edit_ross["weight_g"] * 100
+                        icon_w = "🟢" if abs(diff_w_pct) <= 5 else ("🔴" if diff_w_pct < -5 else "🟡")
+                        st.caption(f"Ross308標準: **{edit_ross['weight_g']} g**　{icon_w} {diff_w:+.0f} g（{diff_w_pct:+.1f}%）")
+
+                st.markdown("**作業記録**")
+                e_log = st.text_area("作業日誌",
+                    value=edit_rec.get("work_log") or "", key="le_log", height=80)
+
+                if workers:
+                    e_worker_names   = ["未選択"] + list(worker_opts.keys())
+                    e_current_worker = worker_map.get(edit_rec.get("worker_id"), "未選択")
+                    e_sel_worker     = st.selectbox("作業担当者", e_worker_names,
+                        index=e_worker_names.index(e_current_worker) if e_current_worker in e_worker_names else 0,
+                        key="le_worker")
+                else:
+                    e_sel_worker = "未選択"
+
+            # ---- 更新・削除ボタン ----
+            bc1, bc2, bc3 = st.columns([1, 1, 4])
+            with bc1:
+                if st.button("💾 更新", key="le_save", type="primary"):
+                    try:
+                        upd("daily_records", "daily_record_id", edit_rec["daily_record_id"], {
+                            "mortality_count":   e_mort,
+                            "culling_count":     e_cull,
+                            "house_temp_max":    e_ht_max,
+                            "house_temp_min":    e_ht_min,
+                            "house_humidity":    e_hum,
+                            "outside_temp_max":  e_ot_max,
+                            "outside_temp_min":  e_ot_min,
+                            "feed_intake":       e_fi  if e_fi  > 0 else None,
+                            "water_intake":      e_wi  if e_wi  > 0 else None,
+                            "feed_delivery_qty": e_fd  if e_fd  > 0 else None,
+                            "feed_brand_id":     brand_opts.get(e_sel_brand) if e_sel_brand != "なし" else None,
+                            "avg_body_weight":   e_weight,
+                            "work_log":          e_log or None,
+                            "worker_id":         worker_opts.get(e_sel_worker) if e_sel_worker != "未選択" else None,
+                        })
+                        st.success(f"✅ {sel_edit_date} を更新しました")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"更新エラー: {e}")
+            with bc2:
+                if st.button("🗑️ 削除", key="le_del"):
+                    try:
+                        supabase.table("daily_records") \
+                            .delete() \
+                            .eq("daily_record_id", edit_rec["daily_record_id"]) \
+                            .execute()
+                        st.success(f"✅ {sel_edit_date} を削除しました")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"削除エラー: {e}")
 
 # ==========================================================
 # タブ3: 推移グラフ
