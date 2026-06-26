@@ -75,19 +75,28 @@ def upd(table, id_col, id_val, data):
 # ----------------------------------------------------------
 # 入力値リセット
 # ----------------------------------------------------------
-INPUT_KEYS = [
-    "dr_mort", "dr_cull",
-    "dr_ht_max", "dr_ht_min", "dr_hum",
-    "dr_ot_max", "dr_ot_min",
-    "dr_fi", "dr_wi", "dr_fd", "dr_brand",
-    "dr_has_weight", "dr_weight",
-    "dr_log", "dr_worker"
-]
+DEFAULTS = {
+    "dr_mort":       0,
+    "dr_cull":       0,
+    "dr_ht_max":     25.0,
+    "dr_ht_min":     20.0,
+    "dr_hum":        60.0,
+    "dr_ot_max":     20.0,
+    "dr_ot_min":     15.0,
+    "dr_fi":         0.0,
+    "dr_wi":         0.0,
+    "dr_fd":         0.0,
+    "dr_has_weight": False,
+    "dr_weight":     0.0,
+    "dr_log":        "",
+    "dr_brand_idx":  0,
+    "dr_worker_idx": 0,
+}
 
 def reset_inputs():
-    for key in INPUT_KEYS:
-        if key in st.session_state:
-            del st.session_state[key]
+    """デフォルト値をセッションに書き込んでウィジェットを確実にリセット"""
+    for key, val in DEFAULTS.items():
+        st.session_state[key] = val
 
 # ----------------------------------------------------------
 # マスタ取得
@@ -191,22 +200,30 @@ with tab1:
         st.session_state["_cached_rec"] = rec
         st.session_state["_last_target"] = current_target
 
-        # 既存レコードがある場合、値をセッションに書き込んでウィジェットに反映
+        # 既存レコードがある場合は値を、ない場合はデフォルト値をセッションに書き込み
         if rec:
-            st.session_state["dr_mort"]       = int(rec.get("mortality_count")  or 0)
-            st.session_state["dr_cull"]       = int(rec.get("culling_count")    or 0)
-            st.session_state["dr_ht_max"]     = float(rec.get("house_temp_max") or 25.0)
-            st.session_state["dr_ht_min"]     = float(rec.get("house_temp_min") or 20.0)
-            st.session_state["dr_hum"]        = float(rec.get("house_humidity") or 60.0)
+            st.session_state["dr_mort"]       = int(rec.get("mortality_count")    or 0)
+            st.session_state["dr_cull"]       = int(rec.get("culling_count")      or 0)
+            st.session_state["dr_ht_max"]     = float(rec.get("house_temp_max")   or 25.0)
+            st.session_state["dr_ht_min"]     = float(rec.get("house_temp_min")   or 20.0)
+            st.session_state["dr_hum"]        = float(rec.get("house_humidity")   or 60.0)
             st.session_state["dr_ot_max"]     = float(rec.get("outside_temp_max") or 20.0)
             st.session_state["dr_ot_min"]     = float(rec.get("outside_temp_min") or 15.0)
-            st.session_state["dr_fi"]         = float(rec.get("feed_intake")    or 0.0)
-            st.session_state["dr_wi"]         = float(rec.get("water_intake")   or 0.0)
+            st.session_state["dr_fi"]         = float(rec.get("feed_intake")      or 0.0)
+            st.session_state["dr_wi"]         = float(rec.get("water_intake")     or 0.0)
             st.session_state["dr_fd"]         = float(rec.get("feed_delivery_qty") or 0.0)
             st.session_state["dr_has_weight"] = rec.get("avg_body_weight") is not None
-            st.session_state["dr_weight"]     = float(rec.get("avg_body_weight") or 0.0)
+            st.session_state["dr_weight"]     = float(rec.get("avg_body_weight")  or 0.0)
             st.session_state["dr_log"]        = rec.get("work_log") or ""
-            # brand・workerはselectboxのindexで制御するためスキップ
+            # brand/workerインデックスを設定
+            brand_names_tmp = ["なし"] + list(brand_opts.keys())
+            current_brand_tmp = brand_map.get(rec.get("feed_brand_id"), "なし")
+            st.session_state["dr_brand_idx"] = brand_names_tmp.index(current_brand_tmp) if current_brand_tmp in brand_names_tmp else 0
+            worker_names_tmp = ["未選択"] + list(worker_opts.keys())
+            current_worker_tmp = worker_map.get(rec.get("worker_id"), "未選択")
+            st.session_state["dr_worker_idx"] = worker_names_tmp.index(current_worker_tmp) if current_worker_tmp in worker_names_tmp else 0
+        else:
+            reset_inputs()
         st.rerun()
 
     # キャッシュから既存レコードを参照
@@ -293,17 +310,16 @@ with tab1:
             step=100.0, key="dr_fd", help="納品がない日は0のままでOK")
 
         if feed_brands:
-            brand_names   = ["なし"] + list(brand_opts.keys())
-            current_brand = brand_map.get(v("feed_brand_id"), "なし")
-            sel_brand     = st.selectbox("納品飼料銘柄", brand_names,
-                index=brand_names.index(current_brand) if current_brand in brand_names else 0,
+            brand_names = ["なし"] + list(brand_opts.keys())
+            sel_brand   = st.selectbox("納品飼料銘柄", brand_names,
+                index=min(int(st.session_state.get("dr_brand_idx", 0)), len(brand_names)-1),
                 key="dr_brand")
         else:
             sel_brand = "なし"
 
         st.markdown("**平均体重**")
         has_weight = st.checkbox("本日体重測定あり",
-            value=v("avg_body_weight") is not None, key="dr_has_weight")
+            value=bool(st.session_state.get("dr_has_weight", False)), key="dr_has_weight")
         avg_weight = None
         if has_weight:
             avg_weight = st.number_input("平均体重（g）",
@@ -323,10 +339,9 @@ with tab1:
             value=v("work_log", ""), key="dr_log", height=100)
 
         if workers:
-            worker_names   = ["未選択"] + list(worker_opts.keys())
-            current_worker = worker_map.get(v("worker_id"), "未選択")
-            sel_worker     = st.selectbox("作業担当者", worker_names,
-                index=worker_names.index(current_worker) if current_worker in worker_names else 0,
+            worker_names = ["未選択"] + list(worker_opts.keys())
+            sel_worker   = st.selectbox("作業担当者", worker_names,
+                index=min(int(st.session_state.get("dr_worker_idx", 0)), len(worker_names)-1),
                 key="dr_worker")
         else:
             sel_worker = "未選択"
