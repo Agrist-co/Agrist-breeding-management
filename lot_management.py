@@ -1,6 +1,6 @@
 """
-ブロイラー飼養管理システム - ロット・鶏舎割当管理
-1フォームでロット＋鶏舎を同時に1レコードとして登録
+ブロイラー飼養管理システム - ロット番号・鶏舎割当管理
+farms → lot_numbers（マスタ） → flock_houses → daily_records
 """
 
 import streamlit as st
@@ -42,7 +42,7 @@ def calc_spare(count, pct):
 # ----------------------------------------------------------
 farms        = fetch("farms",        "farm_id")
 houses       = fetch("houses",       "house_id")
-lots         = fetch("lots",         "lot_id")
+lot_numbers  = fetch("lot_numbers",  "lot_number_id")
 flock_houses = fetch("flock_houses", "flock_house_id")
 
 farm_map  = {f["farm_id"]:  f["farm_name"]  for f in farms}
@@ -51,13 +51,13 @@ house_map = {h["house_id"]: h["house_name"] for h in houses}
 tank_map  = {h["house_id"]: h.get("tank_number", "未登録") for h in houses}
 area_map  = {h["house_id"]: h.get("floor_area_tsubo", "-") for h in houses}
 cap_map   = {h["house_id"]: h.get("tank_capacity", "-")    for h in houses}
-lot_label = {
-    l["lot_id"]: f"{farm_map.get(l['farm_id'],'')} - {l['lot_number']}"
-    for l in lots
+ln_label  = {
+    ln["lot_number_id"]: f"{farm_map.get(ln['farm_id'],'')} - {ln['lot_number']}"
+    for ln in lot_numbers
 }
 fh_label  = {
     fh["flock_house_id"]:
-        f"{lot_label.get(fh['lot_id'],'')} / {house_map.get(fh['house_id'],'')}"
+        f"{ln_label.get(fh['lot_number_id'],'')} / {house_map.get(fh['house_id'],'')}"
     for fh in flock_houses
 }
 
@@ -65,7 +65,86 @@ STATUS = ["育成中", "出荷完了", "中止"]
 
 st.title("⚙️ ロット・鶏舎割当管理")
 
-tab1, tab2, tab3 = st.tabs(["➕ 新規登録", "✏️ 編集・削除", "📋 一覧"])
+tab0, tab1, tab2, tab3 = st.tabs([
+    "🗂️ ロット番号マスタ",
+    "➕ 新規登録",
+    "✏️ 編集・削除",
+    "📋 一覧"
+])
+
+# ==========================================================
+# タブ0: ロット番号マスタ管理
+# ==========================================================
+with tab0:
+    st.subheader("🗂️ ロット番号マスタ")
+    st.caption("農場ごとのロット番号（01, 02, 03…）を事前登録します")
+
+    if not farms:
+        st.warning("先に農場マスタを登録してください")
+    else:
+        mode0 = st.radio("操作", ["新規登録", "削除"], horizontal=True, key="ln_mode")
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if mode0 == "新規登録":
+                st.markdown("#### ➕ 新規登録")
+                ln_farm    = st.selectbox("農場", list(farm_opts.keys()), key="ln_farm")
+                ln_numbers = st.text_input(
+                    "ロット番号（複数まとめて登録する場合はカンマ区切り）",
+                    placeholder="例: 01, 02, 03",
+                    key="ln_numbers"
+                )
+                if st.button("登録", key="btn_ln_add"):
+                    if not ln_numbers:
+                        st.error("ロット番号を入力してください")
+                    else:
+                        nums = [n.strip() for n in ln_numbers.split(",") if n.strip()]
+                        success, errors = [], []
+                        for num in nums:
+                            try:
+                                insert("lot_numbers", {
+                                    "farm_id":   farm_opts[ln_farm],
+                                    "lot_number": num,
+                                    "is_active":  True
+                                })
+                                success.append(num)
+                            except Exception as e:
+                                errors.append(f"{num}: {e}")
+                        if success:
+                            st.success(f"✅ 登録完了: {', '.join(success)}")
+                        if errors:
+                            st.error(f"エラー: {'; '.join(errors)}")
+                        st.rerun()
+
+            elif mode0 == "削除":
+                st.markdown("#### 🗑️ 削除")
+                if not lot_numbers:
+                    st.info("登録済みのロット番号がありません")
+                else:
+                    del_ln_id = st.selectbox("削除するロット番号",
+                        [ln["lot_number_id"] for ln in lot_numbers],
+                        format_func=lambda x: ln_label[x],
+                        key="ln_del_id")
+                    st.warning("⚠️ 使用中のロット番号は削除できません")
+                    if st.button("削除", key="btn_ln_del", type="primary"):
+                        try:
+                            delete("lot_numbers", "lot_number_id", del_ln_id)
+                            st.success("✅ 削除しました")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"削除エラー: {e}")
+
+        with col2:
+            st.markdown("#### 📋 登録済みロット番号")
+            ln_latest = fetch("lot_numbers", "lot_number_id")
+            if ln_latest:
+                df = pd.DataFrame(ln_latest)
+                df["farm_name"] = df["farm_id"].map(farm_map)
+                df = df[["lot_number_id", "farm_name", "lot_number", "is_active"]]
+                df.columns = ["ID", "農場", "ロット番号", "稼働中"]
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("まだロット番号が登録されていません")
 
 # ==========================================================
 # タブ1: 新規登録（完全1フォーム）
@@ -79,19 +158,30 @@ with tab1:
     if not houses:
         st.warning("先に鶏舎マスタを登録してください")
         st.stop()
+    if not lot_numbers:
+        st.warning("先にロット番号マスタを登録してください（🗂️ ロット番号マスタタブ）")
+        st.stop()
 
     col1, col2 = st.columns([1, 1])
     with col1:
 
-        # 農場
-        sel_farm    = st.selectbox("農場", list(farm_opts.keys()), key="n_farm")
-        lot_farm_id = farm_opts[sel_farm]
+        # 農場選択
+        sel_farm     = st.selectbox("農場", list(farm_opts.keys()), key="n_farm")
+        lot_farm_id  = farm_opts[sel_farm]
 
-        # ロット番号
-        lot_number  = st.text_input("ロット番号", placeholder="例: 2026-01", key="n_lot_no")
+        # ロット番号（農場で絞り込み）
+        farm_lns = [ln for ln in lot_numbers if ln["farm_id"] == lot_farm_id and ln["is_active"]]
+        if not farm_lns:
+            st.warning("この農場のロット番号が登録されていません（🗂️ ロット番号マスタタブで登録）")
+            st.stop()
+
+        sel_ln_id = st.selectbox("ロット番号",
+            [ln["lot_number_id"] for ln in farm_lns],
+            format_func=lambda x: next(ln["lot_number"] for ln in farm_lns if ln["lot_number_id"] == x),
+            key="n_ln")
 
         # 鶏舎番号（農場で絞り込み）
-        filtered    = [h for h in houses if h["farm_id"] == lot_farm_id]
+        filtered = [h for h in houses if h["farm_id"] == lot_farm_id]
         if not filtered:
             st.warning("この農場に鶏舎が登録されていません")
             st.stop()
@@ -121,12 +211,10 @@ with tab1:
         # 初回飼料納入量
         feed_qty = st.number_input("初回飼料納入量（kg）", min_value=0.0, step=100.0, key="n_feed_qty")
 
-        # 入雛羽数
+        # 入雛羽数・スペア率・スペア羽数
         chick_in_count = st.number_input("入雛羽数（正味）", min_value=1, value=6600, step=100, key="n_chick_count")
-
-        # スペア率・スペア羽数自動計算
-        spare_pct = st.number_input("スペア率（%）", min_value=0.0, max_value=10.0, value=3.0, step=0.5, key="n_spare_pct")
-        spare     = calc_spare(chick_in_count, spare_pct)
+        spare_pct      = st.number_input("スペア率（%）", min_value=0.0, max_value=10.0, value=3.0, step=0.5, key="n_spare_pct")
+        spare          = calc_spare(chick_in_count, spare_pct)
         st.info(
             f"🔢 スペア羽数（自動計算）: **{spare:,} 羽**"
             f"（{spare_pct}% × {chick_in_count:,} 羽）\n\n"
@@ -141,46 +229,27 @@ with tab1:
 
         st.divider()
         if st.button("登録", key="btn_add", type="primary"):
-            if not lot_number:
-                st.error("ロット番号を入力してください")
-            elif feed_date > chick_in_date:
+            if feed_date > chick_in_date:
                 st.error("初回飼料納入日は入雛日以前に設定してください")
             else:
                 try:
-                    # 同農場・同ロット番号が既存か確認
-                    existing_lot = next(
-                        (l for l in lots
-                         if l["farm_id"] == lot_farm_id and l["lot_number"] == lot_number),
-                        None
-                    )
-                    if existing_lot:
-                        lot_id = existing_lot["lot_id"]
-                        st.warning(f"ロット「{lot_number}」は既に登録済みです。鶏舎を追加します。")
-                    else:
-                        res    = insert("lots", {
-                            "farm_id":                   lot_farm_id,
-                            "lot_number":                lot_number,
-                            "lot_start_date":            str(chick_in_date),
-                            "planned_shipment_age_days": planned_age,
-                            "spare_pct":                 spare_pct,
-                            "status":                    "育成中",
-                            "remarks":                   remarks or None
-                        })
-                        lot_id = res.data[0]["lot_id"]
-
                     insert("flock_houses", {
-                        "lot_id":                     lot_id,
+                        "lot_number_id":              sel_ln_id,
                         "house_id":                   sel_house_id,
-                        "initial_feed_delivery_date": str(feed_date),
-                        "initial_feed_delivery_qty":  feed_qty or None,
                         "chick_in_date":              str(chick_in_date),
                         "chick_in_count":             chick_in_count,
+                        "spare_pct":                  spare_pct,
                         "spare_count":                spare,
-                        "status":                     "育成中"
+                        "planned_shipment_age_days":  planned_age,
+                        "initial_feed_delivery_date": str(feed_date),
+                        "initial_feed_delivery_qty":  feed_qty or None,
+                        "status":                     "育成中",
+                        "remarks":                    remarks or None
                     })
+                    sel_ln = next(ln for ln in lot_numbers if ln["lot_number_id"] == sel_ln_id)
                     st.success(
                         f"✅ 登録完了\n\n"
-                        f"農場: {sel_farm}　ロット: {lot_number}　鶏舎: {house_map[sel_house_id]}\n"
+                        f"農場: {sel_farm}　ロット: {sel_ln['lot_number']}　鶏舎: {house_map[sel_house_id]}\n"
                         f"入雛: {chick_in_date}　スペア: {spare:,}羽　合計: {chick_in_count+spare:,}羽"
                     )
                     st.rerun()
@@ -190,17 +259,21 @@ with tab1:
     with col2:
         st.markdown("#### 📋 登録済み一覧（直近）")
         if flock_houses:
-            df = pd.DataFrame(flock_houses)
-            df["lot_label"]  = df["lot_id"].map(lot_label)
-            df["house_name"] = df["house_id"].map(house_map)
-            df["tank_no"]    = df["house_id"].map(tank_map)
-            df["total"]      = df["chick_in_count"] + df["spare_count"].fillna(0).astype(int)
-            df = df[["lot_label", "house_name", "tank_no", "chick_in_date",
-                      "initial_feed_delivery_date", "chick_in_count",
-                      "spare_count", "total", "status"]]
-            df.columns = ["ロット", "鶏舎", "タンクNo", "入雛日",
-                          "初回納入日", "入雛羽数", "スペア羽数", "合計羽数", "状態"]
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            rows = []
+            for fh in flock_houses:
+                ln = next((l for l in lot_numbers if l["lot_number_id"] == fh["lot_number_id"]), {})
+                rows.append({
+                    "農場":       farm_map.get(ln.get("farm_id"), ""),
+                    "ロット番号": ln.get("lot_number", ""),
+                    "鶏舎":       house_map.get(fh["house_id"], ""),
+                    "タンクNo":   tank_map.get(fh["house_id"], ""),
+                    "入雛日":     fh.get("chick_in_date", ""),
+                    "入雛羽数":   fh.get("chick_in_count", ""),
+                    "スペア羽数": fh.get("spare_count", ""),
+                    "合計羽数":   (fh.get("chick_in_count") or 0) + (fh.get("spare_count") or 0),
+                    "状態":       fh.get("status", ""),
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         else:
             st.info("まだ登録がありません")
 
@@ -213,8 +286,7 @@ with tab2:
     if not flock_houses:
         st.info("登録済みのデータがありません")
     else:
-        mode = st.radio("操作", ["編集", "削除"], horizontal=True, key="edit_mode")
-
+        mode2 = st.radio("操作", ["編集", "削除"], horizontal=True, key="edit_mode")
         col1, col2 = st.columns([1, 1])
         with col1:
             sel_fh_id = st.selectbox("対象レコード",
@@ -222,80 +294,57 @@ with tab2:
                 format_func=lambda x: fh_label[x],
                 key="fh_sel")
             fh  = next(f for f in flock_houses if f["flock_house_id"] == sel_fh_id)
-            lot = next((l for l in lots if l["lot_id"] == fh["lot_id"]), None)
-            spare_pct_val = float(lot["spare_pct"] or 3.0) if lot else 3.0
+            fh_ln = next((ln for ln in lot_numbers if ln["lot_number_id"] == fh["lot_number_id"]), None)
 
-            if mode == "編集":
-                # ロット情報
-                st.markdown("##### 📋 ロット情報")
-                e_farm   = st.selectbox("農場", list(farm_opts.keys()),
-                    index=list(farm_opts.values()).index(lot["farm_id"]) if lot and lot["farm_id"] in farm_opts.values() else 0,
-                    key="e_farm")
-                e_lot_no = st.text_input("ロット番号", value=lot["lot_number"] if lot else "", key="e_lot_no")
-                e_age    = st.number_input("出荷日齢（計画）", min_value=30, max_value=70,
-                    value=int(lot["planned_shipment_age_days"] or 46) if lot else 46, step=1, key="e_age")
-                e_spare_pct = st.number_input("スペア率（%）", min_value=0.0, max_value=10.0,
-                    value=spare_pct_val, step=0.5, key="e_spare_pct")
-                e_status_lot = st.selectbox("ロットステータス", STATUS,
-                    index=STATUS.index(lot["status"]) if lot and lot["status"] in STATUS else 0,
-                    key="e_status_lot")
-                e_remarks = st.text_area("摘要", value=lot["remarks"] or "" if lot else "", key="e_remarks")
+            # タンク番号表示
+            st.info(f"🗂️ タンク番号: **{tank_map.get(fh['house_id'],'未登録')}**")
 
-                st.markdown("##### 🏗️ 鶏舎情報")
-                # タンク番号表示
-                st.info(f"🗂️ タンク番号: **{tank_map.get(fh['house_id'],'未登録')}**")
-                e_chick_date = st.date_input("入雛日",
+            if mode2 == "編集":
+                e_cd  = st.date_input("入雛日",
                     value=date.fromisoformat(fh["chick_in_date"]) if fh["chick_in_date"] else date.today(),
-                    key="e_chick_date")
-                e_feed_date  = st.date_input("初回飼料納入日",
-                    value=date.fromisoformat(fh["initial_feed_delivery_date"]) if fh["initial_feed_delivery_date"] else e_chick_date - timedelta(days=1),
-                    max_value=e_chick_date, key="e_feed_date")
-                e_feed_qty   = st.number_input("初回飼料納入量（kg）",
-                    min_value=0.0, value=float(fh["initial_feed_delivery_qty"] or 0), step=100.0, key="e_feed_qty")
-                e_count      = st.number_input("入雛羽数（正味）",
-                    min_value=1, value=int(fh["chick_in_count"]), step=100, key="e_count")
-                e_spare      = calc_spare(e_count, e_spare_pct)
-                st.info(f"🔢 スペア羽数（自動計算）: **{e_spare:,} 羽**　合計: **{e_count+e_spare:,} 羽**")
-                e_status_fh  = st.selectbox("鶏舎ステータス", STATUS,
+                    key="e_cd")
+                e_fd  = st.date_input("初回飼料納入日",
+                    value=date.fromisoformat(fh["initial_feed_delivery_date"]) if fh["initial_feed_delivery_date"] else e_cd - timedelta(days=1),
+                    max_value=e_cd, key="e_fd")
+                e_fq  = st.number_input("初回飼料納入量（kg）",
+                    min_value=0.0, value=float(fh["initial_feed_delivery_qty"] or 0), step=100.0, key="e_fq")
+                e_cc  = st.number_input("入雛羽数（正味）",
+                    min_value=1, value=int(fh["chick_in_count"]), step=100, key="e_cc")
+                e_sp_pct = st.number_input("スペア率（%）",
+                    min_value=0.0, max_value=10.0, value=float(fh["spare_pct"] or 3.0), step=0.5, key="e_sp_pct")
+                e_sp  = calc_spare(e_cc, e_sp_pct)
+                st.info(f"🔢 スペア羽数（自動計算）: **{e_sp:,} 羽**　合計: **{e_cc+e_sp:,} 羽**")
+                e_age = st.number_input("出荷日齢（計画）", min_value=30, max_value=70,
+                    value=int(fh["planned_shipment_age_days"] or 46), step=1, key="e_age")
+                e_st  = st.selectbox("ステータス", STATUS,
                     index=STATUS.index(fh["status"]) if fh["status"] in STATUS else 0,
-                    key="e_status_fh")
+                    key="e_st")
+                e_rem = st.text_area("摘要", value=fh["remarks"] or "", key="e_rem")
 
                 if st.button("更新", key="btn_update", type="primary"):
                     try:
-                        if lot:
-                            update("lots", "lot_id", lot["lot_id"], {
-                                "farm_id":                   farm_opts[e_farm],
-                                "lot_number":                e_lot_no,
-                                "lot_start_date":            str(e_chick_date),
-                                "planned_shipment_age_days": e_age,
-                                "spare_pct":                 e_spare_pct,
-                                "status":                    e_status_lot,
-                                "remarks":                   e_remarks or None
-                            })
                         update("flock_houses", "flock_house_id", sel_fh_id, {
-                            "chick_in_date":              str(e_chick_date),
-                            "initial_feed_delivery_date": str(e_feed_date),
-                            "initial_feed_delivery_qty":  e_feed_qty or None,
-                            "chick_in_count":             e_count,
-                            "spare_count":                e_spare,
-                            "status":                     e_status_fh
+                            "chick_in_date":              str(e_cd),
+                            "initial_feed_delivery_date": str(e_fd),
+                            "initial_feed_delivery_qty":  e_fq or None,
+                            "chick_in_count":             e_cc,
+                            "spare_pct":                  e_sp_pct,
+                            "spare_count":                e_sp,
+                            "planned_shipment_age_days":  e_age,
+                            "status":                     e_st,
+                            "remarks":                    e_rem or None
                         })
                         st.success("✅ 更新しました")
                         st.rerun()
                     except Exception as e:
                         st.error(f"更新エラー: {e}")
 
-            elif mode == "削除":
-                st.warning("⚠️ このレコードの日次記録も削除されます")
-                del_lot = st.checkbox("ロットごと削除する（関連する全鶏舎割当も削除）", key="del_lot_chk")
+            elif mode2 == "削除":
+                st.warning("⚠️ 削除すると関連する日次記録も削除されます")
                 if st.button("削除", key="btn_delete", type="primary"):
                     try:
-                        if del_lot and lot:
-                            delete("lots", "lot_id", lot["lot_id"])
-                            st.success("✅ ロットごと削除しました")
-                        else:
-                            delete("flock_houses", "flock_house_id", sel_fh_id)
-                            st.success("✅ この鶏舎割当を削除しました")
+                        delete("flock_houses", "flock_house_id", sel_fh_id)
+                        st.success("✅ 削除しました")
                         st.rerun()
                     except Exception as e:
                         st.error(f"削除エラー: {e}")
@@ -307,27 +356,27 @@ with tab3:
     st.subheader("📋 一覧")
 
     fh_latest = fetch("flock_houses", "flock_house_id")
-    lots_latest = fetch("lots", "lot_id")
+    ln_latest = fetch("lot_numbers",  "lot_number_id")
 
     if fh_latest:
         rows = []
         for fh in fh_latest:
-            lot = next((l for l in lots_latest if l["lot_id"] == fh["lot_id"]), {})
+            ln = next((l for l in ln_latest if l["lot_number_id"] == fh["lot_number_id"]), {})
             rows.append({
-                "農場":           farm_map.get(lot.get("farm_id"), ""),
-                "ロット番号":     lot.get("lot_number", ""),
+                "農場":           farm_map.get(ln.get("farm_id"), ""),
+                "ロット番号":     ln.get("lot_number", ""),
                 "鶏舎":           house_map.get(fh["house_id"], ""),
                 "タンクNo":       tank_map.get(fh["house_id"], ""),
                 "入雛日":         fh.get("chick_in_date", ""),
                 "初回納入日":     fh.get("initial_feed_delivery_date", ""),
                 "初回納入量(kg)": fh.get("initial_feed_delivery_qty", ""),
                 "入雛羽数":       fh.get("chick_in_count", ""),
+                "スペア率(%)":    fh.get("spare_pct", ""),
                 "スペア羽数":     fh.get("spare_count", ""),
                 "合計羽数":       (fh.get("chick_in_count") or 0) + (fh.get("spare_count") or 0),
-                "出荷日齢(計画)": lot.get("planned_shipment_age_days", ""),
-                "スペア率(%)":    lot.get("spare_pct", ""),
+                "出荷日齢(計画)": fh.get("planned_shipment_age_days", ""),
                 "状態":           fh.get("status", ""),
-                "摘要":           lot.get("remarks", ""),
+                "摘要":           fh.get("remarks", ""),
             })
         df = pd.DataFrame(rows)
         st.dataframe(df, use_container_width=True, hide_index=True)
