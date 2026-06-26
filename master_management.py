@@ -188,6 +188,8 @@ with tab2:
                 tank_number = st.text_input("タンク番号", key="tank_number_new")
                 floor_area = st.number_input("飼養面積（坪）", min_value=0.0, step=0.5, key="floor_area_new")
                 tank_capacity = st.number_input("タンク容量（kg）", min_value=0.0, step=100.0, key="tank_capacity_new")
+                transfer_coef = st.number_input("基本搬送係数（kg/min）", min_value=0.0, step=0.5, key="transfer_coef_new",
+                    help="飼料搬送装置の基本搬送能力。採食時間（分）× 搬送係数 = 採食量（kg）")
                 if st.button("登録", key="add_house"):
                     if not house_name:
                         st.error("鶏舎名を入力してください")
@@ -201,6 +203,7 @@ with tab2:
                                 "tank_number": tank_number or None,
                                 "floor_area_tsubo": floor_area,
                                 "tank_capacity": tank_capacity or None,
+                                "feed_transfer_coef": transfer_coef or None,
                                 "is_active": True
                             })
                             st.success(f"✅ 鶏舎「{house_name}」を登録しました")
@@ -229,6 +232,8 @@ with tab2:
                     new_tank = st.text_input("タンク番号", value=target["tank_number"] or "", key="house_edit_tank")
                     new_area = st.number_input("飼養面積（坪）", value=float(target["floor_area_tsubo"] or 0), step=0.5, key="house_edit_area")
                     new_cap = st.number_input("タンク容量（kg）", value=float(target["tank_capacity"] or 0), step=100.0, key="house_edit_cap")
+                    new_coef = st.number_input("基本搬送係数（kg/min）", value=float(target.get("feed_transfer_coef") or 0), step=0.5, key="house_edit_coef",
+                        help="飼料搬送装置の基本搬送能力")
                     new_active = st.checkbox("稼働中", value=target["is_active"], key="house_edit_active")
                     if st.button("更新", key="update_house"):
                         try:
@@ -238,6 +243,7 @@ with tab2:
                                 "tank_number": new_tank or None,
                                 "floor_area_tsubo": new_area,
                                 "tank_capacity": new_cap or None,
+                                "feed_transfer_coef": new_coef or None,
                                 "is_active": new_active
                             })
                             st.success("✅ 更新しました")
@@ -275,8 +281,8 @@ with tab2:
             df = pd.DataFrame(houses)
             df["farm_name"] = df["farm_id"].map(farm_map)
             df = df[["house_id", "farm_name", "house_name", "tank_number",
-                      "floor_area_tsubo", "tank_capacity", "is_active"]]
-            df.columns = ["ID", "農場", "鶏舎名", "タンクNo", "面積(坪)", "タンク容量(kg)", "稼働中"]
+                      "floor_area_tsubo", "tank_capacity", "feed_transfer_coef", "is_active"]]
+            df.columns = ["ID", "農場", "鶏舎名", "タンクNo", "面積(坪)", "タンク容量(kg)", "搬送係数(kg/min)", "稼働中"]
             st.dataframe(df, use_container_width=True, hide_index=True)
         else:
             st.info("まだ鶏舎が登録されていません")
@@ -396,6 +402,9 @@ with tab4:
             brand_name = st.text_input("銘柄名", key="brand_name_new")
             manufacturer = st.text_input("メーカー（任意）", key="manufacturer_new")
             feed_type = st.selectbox("飼料種別", FEED_TYPES, key="feed_type_new")
+            coef_ratio = st.number_input("搬送係数補正率", min_value=0.1, max_value=2.0,
+                value=1.000, step=0.005, format="%.3f", key="brand_ratio_new",
+                help="1.000=標準。実搬送係数 = 鶏舎基本係数 × 補正率")
             if st.button("登録", key="add_brand"):
                 if not brand_name:
                     st.error("銘柄名を入力してください")
@@ -428,6 +437,10 @@ with tab4:
                 new_type = st.selectbox("飼料種別", FEED_TYPES,
                     index=FEED_TYPES.index(target["feed_type"]) if target["feed_type"] in FEED_TYPES else 0,
                     key="brand_edit_type")
+                new_ratio = st.number_input("搬送係数補正率", min_value=0.1, max_value=2.0,
+                    value=float(target.get("transfer_coef_ratio") or 1.0),
+                    step=0.005, format="%.3f", key="brand_edit_ratio",
+                    help="1.000=標準。実搬送係数 = 鶏舎基本係数 × 補正率")
                 new_active = st.checkbox("稼働中", value=target["is_active"], key="brand_edit_active")
                 if st.button("更新", key="update_brand"):
                     try:
@@ -435,6 +448,7 @@ with tab4:
                             "brand_name": new_name,
                             "manufacturer": new_mfr or None,
                             "feed_type": new_type,
+                            "transfer_coef_ratio": new_ratio,
                             "is_active": new_active
                         })
                         st.success("✅ 更新しました")
@@ -465,8 +479,8 @@ with tab4:
     st.markdown("#### 📋 登録済み飼料銘柄一覧")
     brands = fetch("feed_brands", "feed_brand_id")
     if brands:
-        df = pd.DataFrame(brands)[["feed_brand_id", "brand_name", "manufacturer", "feed_type", "is_active"]]
-        df.columns = ["ID", "銘柄名", "メーカー", "種別", "稼働中"]
+        df = pd.DataFrame(brands)[["feed_brand_id", "brand_name", "manufacturer", "feed_type", "transfer_coef_ratio", "is_active"]]
+        df.columns = ["ID", "銘柄名", "メーカー", "種別", "補正率", "稼働中"]
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("まだ飼料銘柄が登録されていません")
