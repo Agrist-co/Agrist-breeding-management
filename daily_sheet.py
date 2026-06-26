@@ -233,25 +233,36 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     cum_feed_kg  += df.loc[0, "act_feed_kg"]
     evening_pred  = first_qty - df.loc[0, "act_feed_kg"]
 
+    # 銘柄名を取得（段階別）
+    sorted_stages = sorted(brand_stages, key=lambda b: b.get("age_from_days") or 0)
+    brand_name_pre = sorted_stages[0]["brand_name"] if len(sorted_stages) >= 1 else "前期"
+    brand_name_mid = sorted_stages[1]["brand_name"] if len(sorted_stages) >= 2 else "中期"
+    brand_name_fin = sorted_stages[-1]["brand_name"] if sorted_stages else "仕上"
+
     def get_order_note(qty, allocated_pre, allocated_mid, pre_limit, mid_limit):
-        """発注種別メモを生成（前期/中期/仕上の混載判定）"""
+        """発注種別メモを生成（銘柄名＋数量・混載対応）"""
         rem_pre = max(pre_limit - allocated_pre, 0) if pre_limit > 0 else 0
         rem_mid = max(mid_limit - allocated_mid, 0) if mid_limit > 0 else 0
         if rem_pre > 0:
             if rem_pre >= qty:
-                return f"前期: {qty:.0f}kg", qty, 0
+                return f"{brand_name_pre} {qty:,.0f}kg", qty, 0
             else:
                 mix = qty - rem_pre
-                label = f"前期{rem_pre:.0f}/中期{mix:.0f}kg" if mid_limit > 0 else f"前期{rem_pre:.0f}/仕上{mix:.0f}kg"
-                return label, rem_pre, mix if mid_limit > 0 else 0
+                if mid_limit > 0:
+                    label = f"{brand_name_pre} {rem_pre:,.0f}kg ＋ {brand_name_mid} {mix:,.0f}kg"
+                    return label, rem_pre, mix
+                else:
+                    label = f"{brand_name_pre} {rem_pre:,.0f}kg ＋ {brand_name_fin} {mix:,.0f}kg"
+                    return label, rem_pre, 0
         elif rem_mid > 0:
             if rem_mid >= qty:
-                return f"中期: {qty:.0f}kg", 0, qty
+                return f"{brand_name_mid} {qty:,.0f}kg", 0, qty
             else:
                 mix = qty - rem_mid
-                return f"中期{rem_mid:.0f}/仕上{mix:.0f}kg", 0, rem_mid
+                label = f"{brand_name_mid} {rem_mid:,.0f}kg ＋ {brand_name_fin} {mix:,.0f}kg"
+                return label, 0, rem_mid
         else:
-            return f"仕上: {qty:.0f}kg", 0, 0
+            return f"{brand_name_fin} {qty:,.0f}kg", 0, 0
 
     for d in range(1, len(df)):
         pred_tank[d]  = evening_pred
@@ -655,16 +666,14 @@ with sheet_tab:
 # ----------------------------------------------------------
 with forecast_tab:
     st.markdown("#### ⚙️ 発注パラメータ")
-    fp1, fp2, fp3 = st.columns(3)
+    fp1, fp2 = st.columns(2)
     with fp1:
-        fc_std_qty   = st.number_input("基本発注量（kg）",
-            min_value=0.0, value=5000.0, step=500.0, key="fc_std_qty")
+        fc_std_qty   = st.number_input("配送単位（kg）",
+            min_value=0.0, value=4000.0, step=500.0, key="fc_std_qty")
     with fp2:
         fc_min_alert = st.number_input("最低残量アラート（kg）",
-            min_value=0.0, value=500.0, step=100.0, key="fc_min_alert")
-    with fp3:
-        fc_lead_time = st.number_input("リードタイム（日）",
-            min_value=1, max_value=14, value=3, step=1, key="fc_lead")
+            min_value=0.0, value=200.0, step=50.0, key="fc_min_alert")
+    fc_lead_time = 0  # リードタイムなし（出荷日齢まで全予測）
 
     st.caption("💡 表の「実測残量kg」「調整発注kg」を直接入力すると自動再計算されます")
 
@@ -703,18 +712,17 @@ with forecast_tab:
         # 編集用DataFrameを構築
         # 実測残量・調整発注量は編集可能、それ以外は読み取り専用
         edit_df = pd.DataFrame({
-            "日齢":         df_fc["day"].astype(int),
-            "月日":         df_fc["date_str"],
-            "今日":         df_fc["day"].apply(lambda d: "◀" if d == today_day_fc else ""),
-            "採食kg":       df_fc["act_feed_kg"].round(1),
-            "採食累計kg":   df_fc["cum_feed_kg"].round(0),
-            "補正率":       df_fc["adj_rate"].round(3),
-            "予測残量kg":   df_fc["pred_tank"].round(0),
-            "実測残量kg":   df_fc["real_tank"].apply(
+            "日齢":       df_fc["day"].astype(int),
+            "月日":       df_fc["date_str"],
+            "今日":       df_fc["day"].apply(lambda d: "◀" if d == today_day_fc else ""),
+            "採食kg":     df_fc["act_feed_kg"].round(1),
+            "採食累計kg": df_fc["cum_feed_kg"].round(0),
+            "補正率":     df_fc["adj_rate"].round(3),
+            "予測残量kg": df_fc["pred_tank"].round(0),
+            "実測残量kg": df_fc["real_tank"].apply(
                 lambda x: float(x) if not (isinstance(x, float) and np.isnan(x)) else None),
-            "調整発注kg":   df_fc["delivery_kg"].apply(lambda x: float(x) if x > 0 else None),
-            "配送累計kg":   df_fc["cum_delivery_kg"].round(0),
-            "発注種別":     df_fc["event_notes"],
+            "調整発注kg": df_fc["delivery_kg"].apply(lambda x: float(x) if x > 0 else None),
+            "発注内容":   df_fc["event_notes"],  # 銘柄名＋数量
         })
 
         edited_fc = st.data_editor(
@@ -782,60 +790,170 @@ with forecast_tab:
                 st.session_state[adj_key] = {}
                 st.rerun()
 
-        # ---- Step7: 発注計画一覧 ----
-        order_plan = df_fc[df_fc["delivery_kg"] > 0].copy()
-        if not order_plan.empty:
-            st.markdown("#### 📋 発注計画一覧")
-            active_brs = [b for b in feed_brands if b.get("is_active")]
-            order_plan["納品予定日"] = order_plan["date_str"]
-            order_plan["日齢"]       = order_plan["day"]
-            order_plan["発注量kg"]   = order_plan["delivery_kg"].apply(lambda x: f"{x:,.0f}")
-            order_plan["発注種別"]   = order_plan["event_notes"]
-            order_plan["タンク残量"] = order_plan["pred_tank"].apply(lambda x: f"{x:,.0f}")
-            order_plan["使用銘柄"]   = order_plan["日齢"].apply(
-                lambda d: (get_brand_for_age(d, active_brs) or {}).get("brand_name", "-"))
-            st.dataframe(
-                order_plan[["納品予定日","日齢","発注量kg","発注種別","タンク残量","使用銘柄"]],
-                use_container_width=True, hide_index=True)
+        # ---- Step7: 予定配送一覧（出荷日齢まで全発注計画） ----
+        st.markdown("#### 📋 予定配送一覧（出荷日齢まで）")
+        active_brs  = [b for b in feed_brands if b.get("is_active")]
+        order_plan  = df_fc[df_fc["delivery_kg"] > 0].copy()
 
-            # ---- Step8: 調整内容をDBに保存 ----
-            if adj_dict and st.button("💾 調整内容を保存", key="fc_save", type="primary"):
-                try:
-                    for day, adj in adj_dict.items():
-                        rec_date = str(chick_in_date + timedelta(days=day))
-                        # feed_order_detailsに調整発注を保存
-                        if adj.get("delivered") and adj["delivered"] > 0:
-                            # 既存発注記録があるか確認
-                            existing_order = supabase.table("feed_orders")                                 .select("order_id")                                 .eq("farm_id", sel_fh["lot_number_id"])                                 .execute().data
-                            # 調整発注をfeed_ordersに記録
-                            res = supabase.table("feed_orders").insert({
-                                "farm_id":         next(
-                                    (ln["farm_id"] for ln in lot_numbers
-                                     if ln["lot_number_id"] == sel_fh["lot_number_id"]), None),
-                                "order_date":      str(date.today()),
-                                "delivery_date":   rec_date,
-                                "lead_time_days":  fc_lead_time,
-                                "total_order_qty": adj["delivered"],
-                                "status":          "発注済",
-                                "remarks":         "シミュレーション調整発注",
-                            }).execute()
-                            order_id = res.data[0]["order_id"]
-                            supabase.table("feed_order_details").insert({
-                                "order_id":              order_id,
-                                "flock_house_id":        sel_fh_id,
-                                "order_qty":             adj["delivered"],
-                                "actual_tank_remaining": adj.get("actual_tank"),
-                                "calc_tank_remaining":   float(
-                                    df_fc[df_fc["day"] == day]["pred_tank"].iloc[0])
-                                    if day in df_fc["day"].values else None,
-                            }).execute()
-                    st.success("✅ 調整内容を保存しました")
-                    st.session_state[adj_key] = {}
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"保存エラー: {e}")
-        else:
+        if order_plan.empty:
             st.info("出荷日齢まで発注不要です")
+        else:
+            order_plan = order_plan.copy()
+            order_plan["納品予定日_dt"] = order_plan["date_obj"]
+            order_plan["納品予定日"]    = order_plan["date_str"]
+            order_plan["日齢"]          = order_plan["day"].astype(int)
+            order_plan["発注量kg"]      = order_plan["delivery_kg"].round(0)
+            order_plan["発注種別"]      = order_plan["event_notes"]  # 銘柄名＋数量
+            order_plan["タンク残量kg"]  = order_plan["pred_tank"].round(0)
+            order_plan["採食累計kg"]    = order_plan["cum_feed_kg"].round(0)
+            order_plan["配送累計kg"]    = order_plan["cum_delivery_kg"].round(0)
+            order_plan["使用銘柄"]      = order_plan["日齢"].apply(
+                lambda d: (get_brand_for_age(d, active_brs) or {}).get("brand_name", "-"))
+
+            # 合計行を追加
+            total_row = {
+                "納品予定日": "【合計】",
+                "日齢":       "",
+                "発注量kg":   order_plan["発注量kg"].sum(),
+                "発注種別":   "",
+                "タンク残量kg": "",
+                "採食累計kg": "",
+                "配送累計kg": "",
+                "使用銘柄":   "",
+            }
+            disp_order = order_plan[[
+                "納品予定日","日齢","発注量kg","発注種別","タンク残量kg","採食累計kg"
+            ]].copy()
+            st.dataframe(disp_order, use_container_width=True, hide_index=True)
+            total_qty = order_plan["発注量kg"].sum()
+            st.caption(f"合計発注量: **{total_qty:,.0f} kg** / {len(order_plan)}回")
+
+            # ---- Step8: 発注日範囲を指定して発注 ----
+            st.markdown("#### 📤 発注日範囲指定・発注登録")
+            st.caption("発注したい範囲（納品予定日）を指定して、その期間の発注を一括登録します")
+
+            min_date = order_plan["納品予定日_dt"].min().date()
+            max_date = order_plan["納品予定日_dt"].max().date()
+
+            dr1, dr2 = st.columns(2)
+            with dr1:
+                range_from = st.date_input("発注範囲（開始）",
+                    value=min_date, min_value=min_date, max_value=max_date,
+                    key="fc_range_from")
+            with dr2:
+                range_to = st.date_input("発注範囲（終了）",
+                    value=min(min_date + timedelta(days=14), max_date),
+                    min_value=min_date, max_value=max_date,
+                    key="fc_range_to")
+
+            # 対象発注を絞り込み
+            sel_orders = order_plan[
+                (order_plan["納品予定日_dt"].dt.date >= range_from) &
+                (order_plan["納品予定日_dt"].dt.date <= range_to)
+            ]
+
+            if sel_orders.empty:
+                st.info("指定した期間に発注はありません")
+            else:
+                sel_total = sel_orders["発注量kg"].sum()
+                st.markdown(f"**対象: {len(sel_orders)}回　合計: {sel_total:,.0f} kg**")
+                st.dataframe(
+                    sel_orders[["納品予定日","日齢","発注量kg","発注種別"]],
+                    use_container_width=True, hide_index=True)
+
+                # 発注書プレビュー
+                farm_id_fc = next(
+                    (ln["farm_id"] for ln in lot_numbers
+                     if ln["lot_number_id"] == sel_fh["lot_number_id"]), None)
+                farm_nm_fc = farm_map.get(farm_id_fc, "")
+                lines = [
+                    f"【飼料発注】{farm_nm_fc}",
+                    f"発注日: {date.today()}",
+                    "",
+                ]
+                for _, r in sel_orders.iterrows():
+                    lines.append(
+                        f"  納品予定日: {r['納品予定日']}（日齢{r['日齢']}日）"
+                        f"　合計 {r['発注量kg']:,.0f} kg"
+                        f"　内訳: {r['発注種別']}")
+                lines += ["", f"合計: {sel_total:,.0f} kg", "", "よろしくお願いいたします。", farm_nm_fc]
+                preview_text = "\n".join(lines)
+                st.text_area("発注書プレビュー", value=preview_text, height=200, key="fc_preview")
+
+                # 登録・送信ボタン
+                bc1, bc2 = st.columns([1, 3])
+                with bc1:
+                    if st.button("💾 発注登録", type="primary", key="fc_order_save"):
+                        try:
+                            for _, r in sel_orders.iterrows():
+                                brand_id = next(
+                                    (b["feed_brand_id"] for b in feed_brands
+                                     if b["brand_name"] == r["使用銘柄"]), None)
+                                res_ord = supabase.table("feed_orders").insert({
+                                    "farm_id":         farm_id_fc,
+                                    "order_date":      str(date.today()),
+                                    "delivery_date":   str(r["納品予定日_dt"].date()),
+                                    "lead_time_days":  0,
+                                    "total_order_qty": float(r["発注量kg"]),
+                                    "status":          "発注済",
+                                }).execute()
+                                order_id = res_ord.data[0]["order_id"]
+                                supabase.table("feed_order_details").insert({
+                                    "order_id":        order_id,
+                                    "flock_house_id":  sel_fh_id,
+                                    "feed_brand_id":   brand_id,
+                                    "order_qty":       float(r["発注量kg"]),
+                                    "tank_remaining":  float(r["タンク残量kg"]),
+                                    "stock_days":      None,
+                                }).execute()
+                            st.session_state["fc_msg"] = f"✅ {len(sel_orders)}件の発注を登録しました"
+                            st.session_state["fc_preview"] = preview_text
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"登録エラー: {e}")
+
+                with bc2:
+                    # 登録後のメール送信
+                    if "fc_msg" in st.session_state:
+                        st.success(st.session_state.pop("fc_msg"))
+                        email_settings = fetch("email_settings", "setting_id")
+                        if email_settings:
+                            setting_opts = {es["setting_name"]: es for es in email_settings}
+                            sel_es = st.selectbox("送信先",
+                                list(setting_opts.keys()), key="fc_email_sel")
+                            es = setting_opts[sel_es]
+                            to_addr = st.text_input("宛先", value=es["to_address"] or "", key="fc_to")
+                            subject = st.text_input("件名",
+                                value=f"【飼料発注】{farm_nm_fc} {date.today()}", key="fc_subj")
+                            body = st.text_area("本文",
+                                value=st.session_state.get("fc_preview", ""),
+                                height=150, key="fc_body")
+                            if st.button("📧 メール送信", key="fc_send", type="primary"):
+                                try:
+                                    import smtplib
+                                    from email.mime.text import MIMEText
+                                    from email.mime.multipart import MIMEMultipart
+                                    smtp_host = st.secrets.get("smtp", {}).get("host", "")
+                                    smtp_port = int(st.secrets.get("smtp", {}).get("port", 587))
+                                    smtp_user = st.secrets.get("smtp", {}).get("user", "")
+                                    smtp_pass = st.secrets.get("smtp", {}).get("password", "")
+                                    if not smtp_host:
+                                        st.error("SMTP設定がありません")
+                                    else:
+                                        msg = MIMEMultipart()
+                                        msg["From"]    = smtp_user
+                                        msg["To"]      = to_addr
+                                        msg["Subject"] = subject
+                                        msg.attach(MIMEText(body, "plain", "utf-8"))
+                                        with smtplib.SMTP(smtp_host, smtp_port) as server:
+                                            server.starttls()
+                                            server.login(smtp_user, smtp_pass)
+                                            server.sendmail(smtp_user, [to_addr], msg.as_string())
+                                        st.success(f"✅ 送信完了 → {to_addr}")
+                                except Exception as e:
+                                    st.error(f"送信エラー: {e}")
+                        else:
+                            st.warning("メール設定がありません")
 
     except Exception as e:
         st.error(f"発注予測エラー: {e}")
