@@ -174,32 +174,62 @@ with tab1:
     # ---- 対象が変わったらリセット＋既存レコードを再取得 ----
     current_target = f"{sel_fh_id}_{record_date}"
     if st.session_state.get("_last_target") != current_target:
-        # セッションの入力値をクリア
+        # 入力キーをクリア
         reset_inputs()
-        # 新しい対象の既存レコードを取得してキャッシュ
+        # 新しい対象の既存レコードを取得
         existing = supabase.table("daily_records") \
             .select("*") \
             .eq("flock_house_id", sel_fh_id) \
             .eq("record_date", str(record_date)) \
             .execute().data
-        st.session_state["_cached_rec"] = existing[0] if existing else None
+        rec = existing[0] if existing else None
+        st.session_state["_cached_rec"] = rec
         st.session_state["_last_target"] = current_target
+
+        # 既存レコードがある場合、値をセッションに書き込んでウィジェットに反映
+        if rec:
+            st.session_state["dr_mort"]       = int(rec.get("mortality_count")  or 0)
+            st.session_state["dr_cull"]       = int(rec.get("culling_count")    or 0)
+            st.session_state["dr_ht_max"]     = float(rec.get("house_temp_max") or 25.0)
+            st.session_state["dr_ht_min"]     = float(rec.get("house_temp_min") or 20.0)
+            st.session_state["dr_hum"]        = float(rec.get("house_humidity") or 60.0)
+            st.session_state["dr_ot_max"]     = float(rec.get("outside_temp_max") or 20.0)
+            st.session_state["dr_ot_min"]     = float(rec.get("outside_temp_min") or 15.0)
+            st.session_state["dr_fi"]         = float(rec.get("feed_intake")    or 0.0)
+            st.session_state["dr_wi"]         = float(rec.get("water_intake")   or 0.0)
+            st.session_state["dr_fd"]         = float(rec.get("feed_delivery_qty") or 0.0)
+            st.session_state["dr_has_weight"] = rec.get("avg_body_weight") is not None
+            st.session_state["dr_weight"]     = float(rec.get("avg_body_weight") or 0.0)
+            st.session_state["dr_log"]        = rec.get("work_log") or ""
+            # brand・workerはselectboxのindexで制御するためスキップ
+        st.rerun()
 
     # キャッシュから既存レコードを参照
     rec = st.session_state.get("_cached_rec")
 
     if rec:
-        st.info(f"✏️ {record_date} の記録が登録済みです。内容を編集できます。")
+        st.markdown(
+            "<span style='font-size:0.75rem;color:#0068c9;'>✏️ 登録済み — 編集できます</span>",
+            unsafe_allow_html=True)
     else:
-        st.caption(f"📋 {record_date} は未入力です。新規登録します。")
+        st.markdown(
+            "<span style='font-size:0.75rem;color:#888;'>📋 未入力 — 新規登録</span>",
+            unsafe_allow_html=True)
 
-    # ---- サマリ表示 ----
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("日齢",             f"{age_days} 日")
-    m2.metric("残存羽数（管理用）", f"{total_rem:,} 羽")
-    m3.metric("残存羽数（成績用）", f"{perf_rem:,} 羽")
-    m4.metric("累計斃死+淘汰",    f"{total_mort + total_cull:,} 羽")
-    m5.metric("Ross308標準体重",  f"{ross.get('weight_g', '-')} g")
+    # ---- サマリ表示（コンパクト） ----
+    ross_wt = ross.get('weight_g', '-')
+    st.markdown(
+        f"""<div style="display:flex;gap:1.2rem;align-items:center;
+            background:#f0f2f6;border-radius:6px;padding:4px 10px;
+            font-size:0.72rem;color:#444;margin-bottom:4px;">
+            <span>📅 <b>日齢</b>: {age_days} 日</span>
+            <span>🐔 <b>残存（管理）</b>: {total_rem:,} 羽</span>
+            <span>📊 <b>残存（成績）</b>: {perf_rem:,} 羽</span>
+            <span>💀 <b>累計斃死+淘汰</b>: {total_mort + total_cull:,} 羽</span>
+            <span>⚖️ <b>Ross308標準体重</b>: {ross_wt} g</span>
+        </div>""",
+        unsafe_allow_html=True
+    )
 
     def v(key, default=None):
         """既存レコードの値 or デフォルト値を返す"""
