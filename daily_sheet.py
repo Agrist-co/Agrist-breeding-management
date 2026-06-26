@@ -282,20 +282,19 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             cum_feed_kg  += daily_feed
             evening_pred  = real_tank[d] + delivery_kg[d] - daily_feed
 
-        elif d > today_day:
+        elif d > max(today_day, 0):
             # ---- 未来日：発注判定 ----
             cum_feed_kg += daily_feed
 
             if pred_tank[d] <= min_alert:
-                # 残量不足 → 発注
-                # 繰り返し発注判定
+                # 残量不足 → 発注ループ
+                # 「採食量累計 - 配送量累計」が配送単位より大きい間は配送単位で繰り返し発注
                 remaining_need = cum_feed_kg - cum_delivery_kg
 
                 if remaining_need <= 0:
-                    # 既に配送量が足りている
-                    pass
+                    pass  # 既に足りている
                 elif remaining_need <= std_qty:
-                    # 端数発注（最終発注）
+                    # 端数発注（出荷前最終発注）
                     order_qty = round(remaining_need, 0)
                     delivery_kg[d] += order_qty
                     cum_delivery_kg += order_qty
@@ -303,18 +302,21 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                         order_qty, allocated_pre, allocated_mid, pre_limit, mid_limit)
                     allocated_pre += add_pre
                     allocated_mid += add_mid
-                    event_notes[d] = f"最終発注({note})"
+                    event_notes[d] = f"最終発注: {note}"
                 else:
-                    # 配送単位で発注（必要に応じて複数回）
+                    # 配送単位で繰り返し発注
                     total_order = 0.0
                     notes_list  = []
-                    while cum_feed_kg - (cum_delivery_kg + total_order) > std_qty:
+                    loop_count  = 0
+                    while (cum_feed_kg - (cum_delivery_kg + total_order) > std_qty
+                           and loop_count < 20):  # 無限ループ防止
                         total_order += std_qty
                         note, add_pre, add_mid = get_order_note(
                             std_qty, allocated_pre, allocated_mid, pre_limit, mid_limit)
                         allocated_pre += add_pre
                         allocated_mid += add_mid
                         notes_list.append(note)
+                        loop_count += 1
                     # 最後の端数
                     final_need = cum_feed_kg - (cum_delivery_kg + total_order)
                     if final_need > 0:
@@ -713,8 +715,9 @@ with forecast_tab:
         # 実測残量・調整発注量は編集可能、それ以外は読み取り専用
         edit_df = pd.DataFrame({
             "日齢":       df_fc["day"].astype(int),
-            "月日":       df_fc["date_str"],
-            "今日":       df_fc["day"].apply(lambda d: "◀" if d == today_day_fc else ""),
+            "月日":       df_fc.apply(
+                lambda r: f"◀{r['date_str']}" if r["day"] == today_day_fc else r["date_str"],
+                axis=1),
             "採食kg":     df_fc["act_feed_kg"].round(1),
             "採食累計kg": df_fc["cum_feed_kg"].round(0),
             "補正率":     df_fc["adj_rate"].round(3),
@@ -722,7 +725,7 @@ with forecast_tab:
             "実測残量kg": df_fc["real_tank"].apply(
                 lambda x: float(x) if not (isinstance(x, float) and np.isnan(x)) else None),
             "調整発注kg": df_fc["delivery_kg"].apply(lambda x: float(x) if x > 0 else None),
-            "発注内容":   df_fc["event_notes"],  # 銘柄名＋数量
+            "発注内容":   df_fc["event_notes"],
         })
 
         edited_fc = st.data_editor(
@@ -734,7 +737,6 @@ with forecast_tab:
             column_config={
                 "日齢":       st.column_config.NumberColumn("日齢",    disabled=True, width=45),
                 "月日":       st.column_config.TextColumn(  "月日",    disabled=True, width=55),
-                "今日":       st.column_config.TextColumn(  "",        disabled=True, width=30),
                 "採食kg":       st.column_config.NumberColumn("採食kg",     disabled=True, width=60),
                 "採食累計kg":   st.column_config.NumberColumn("採食累計kg", disabled=True, width=75),
                 "補正率":       st.column_config.NumberColumn("補正率",     disabled=True, width=55),
@@ -759,19 +761,19 @@ with forecast_tab:
             entry   = {}
             # 実測残量の変更を検知
             orig_real = edit_df.at[i, "実測残量kg"]
-            new_real  = row["実測残量kg"]
-            if pd.notna(new_real) and new_real != orig_real:
+            new_real  = row.get("実測残量kg")
+            if new_real is not None and pd.notna(new_real) and new_real != orig_real:
                 entry["actual_tank"] = float(new_real)
                 changed = True
-            elif pd.notna(orig_real):
+            elif orig_real is not None and pd.notna(orig_real):
                 entry["actual_tank"] = float(orig_real)
             # 調整発注量の変更を検知
             orig_del = edit_df.at[i, "調整発注kg"]
-            new_del  = row["調整発注kg"]
-            if pd.notna(new_del) and new_del != orig_del:
+            new_del  = row.get("調整発注kg")
+            if new_del is not None and pd.notna(new_del) and new_del != orig_del:
                 entry["delivered"] = float(new_del)
                 changed = True
-            elif pd.notna(orig_del):
+            elif orig_del is not None and pd.notna(orig_del):
                 entry["delivered"] = float(orig_del)
             if entry:
                 new_adj[day] = entry
