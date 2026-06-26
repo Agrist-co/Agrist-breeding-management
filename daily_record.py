@@ -104,6 +104,7 @@ DEFAULTS = {
     "dr_ot_max":     20.0,
     "dr_ot_min":     15.0,
     "dr_fi":         0.0,
+    "dr_coef":      0.0,
     "dr_wi":         0.0,
     "dr_fd":         0.0,
     "dr_has_weight": False,
@@ -229,7 +230,8 @@ with tab1:
             st.session_state["dr_hum"]        = float(rec.get("house_humidity")   or 60.0)
             st.session_state["dr_ot_max"]     = float(rec.get("outside_temp_max") or 20.0)
             st.session_state["dr_ot_min"]     = float(rec.get("outside_temp_min") or 15.0)
-            st.session_state["dr_fi"]         = float(rec.get("feed_intake")      or 0.0)
+            st.session_state["dr_fi"]         = float(rec.get("feed_duration_min") or 0.0)
+            st.session_state["dr_coef"]        = float(rec.get("feed_transfer_coef") or 0.0)
             st.session_state["dr_wi"]         = float(rec.get("water_intake")     or 0.0)
             st.session_state["dr_fd"]         = float(rec.get("feed_delivery_qty") or 0.0)
             st.session_state["dr_has_weight"] = rec.get("avg_body_weight") is not None
@@ -313,14 +315,21 @@ with tab1:
 
     with col2:
         st.markdown("**飼料・飲水**")
-        feed_intake  = st.number_input("採食量（kg）",
-            min_value=0.0, value=float(v("feed_intake",  0.0)), step=10.0, key="dr_fi")
+        feed_duration = st.number_input("採食時間（分）",
+            min_value=0.0, value=float(v("feed_duration_min", 0.0)), step=1.0, key="dr_fi")
+        feed_coef     = st.number_input("搬送係数（kg/min）",
+            min_value=0.0, value=float(v("feed_transfer_coef", 0.0)), step=0.5, key="dr_coef")
+        # 採食量（kg）を自動計算
+        feed_intake_kg = feed_duration * feed_coef if feed_duration > 0 and feed_coef > 0 else 0.0
+        if feed_duration > 0 and feed_coef > 0:
+            st.caption(f"採食量（自動計算）: **{feed_intake_kg:.1f} kg**　（{feed_duration:.0f}分 × {feed_coef:.1f}kg/min）")
+
         water_intake = st.number_input("飲水量（L）",
             min_value=0.0, value=float(v("water_intake", 0.0)), step=10.0, key="dr_wi")
 
         if ross and ross.get("daily_intake_g") and today_total > 0:
             std_kg   = ross["daily_intake_g"] / 1000 * today_total
-            diff     = feed_intake - std_kg
+            diff     = feed_intake_kg - std_kg
             diff_pct = diff / std_kg * 100 if std_kg > 0 else 0
             icon     = "🟢" if abs(diff_pct) <= 5 else ("🔴" if diff_pct < -5 else "🟡")
             st.caption(f"Ross308標準: **{std_kg:.1f} kg**　{icon} 差: **{diff:+.1f} kg**（{diff_pct:+.1f}%）")
@@ -391,7 +400,8 @@ with tab1:
             "house_humidity":    house_humidity,
             "outside_temp_max":  outside_temp_max,
             "outside_temp_min":  outside_temp_min,
-            "feed_intake":       feed_intake  if feed_intake  > 0 else None,
+            "feed_duration_min":    feed_duration  if feed_duration  > 0 else None,
+            "feed_transfer_coef":   feed_coef      if feed_coef      > 0 else None,
             "water_intake":      water_intake if water_intake > 0 else None,
             "feed_delivery_qty": feed_delivery if feed_delivery > 0 else None,
             "feed_brand_id":     brand_opts.get(sel_brand) if sel_brand != "なし" else None,
@@ -467,6 +477,10 @@ with tab2:
         # 飼料銘柄・担当者はラベル文字列で表示
         brand_names_list   = ["なし"] + list(brand_opts.keys())
         worker_names_list  = ["未選択"] + list(worker_opts.keys())
+        df["採食量kg"] = df.apply(
+            lambda r: round(r["feed_duration_min"] * r["feed_transfer_coef"], 2)
+            if pd.notna(r["feed_duration_min"]) and pd.notna(r["feed_transfer_coef"])
+            else None, axis=1)
         df["飼料銘柄"] = df["feed_brand_id"].map(brand_map).fillna("なし")
         df["担当者"]   = df["worker_id"].map(worker_map).fillna("未選択")
 
@@ -477,7 +491,7 @@ with tab2:
             "mortality_count", "culling_count",
             "house_temp_max", "house_temp_min", "house_humidity",
             "outside_temp_max", "outside_temp_min",
-            "feed_intake", "water_intake", "feed_delivery_qty",
+            "feed_duration_min", "feed_transfer_coef", "water_intake", "feed_delivery_qty",
             "飼料銘柄", "avg_body_weight", "work_log", "担当者"
         ]].copy()
 
@@ -487,7 +501,7 @@ with tab2:
             "斃死", "淘汰",
             "舎内最高℃", "舎内最低℃", "湿度%",
             "外気最高℃", "外気最低℃",
-            "採食量kg", "飲水量L", "納品量kg",
+            "採食時間min", "搬送係数kg/min", "飲水量L", "納品量kg",
             "飼料銘柄", "平均体重g", "作業日誌", "担当者"
         ]
 
@@ -514,7 +528,8 @@ with tab2:
                 "湿度%":    st.column_config.NumberColumn("湿度%", min_value=0.0, max_value=100.0, step=1.0, width="small"),
                 "外気最高℃": st.column_config.NumberColumn("外気最高℃", step=0.1, width="small"),
                 "外気最低℃": st.column_config.NumberColumn("外気最低℃", step=0.1, width="small"),
-                "採食量kg": st.column_config.NumberColumn("採食量kg", step=0.1, width="small"),
+                "採食時間min": st.column_config.NumberColumn("採食時間min", step=1.0, width="small"),
+                "搬送係数kg/min": st.column_config.NumberColumn("搬送係数kg/min", step=0.5, width="small"),
                 "飲水量L":  st.column_config.NumberColumn("飲水量L",  step=0.1, width="small"),
                 "納品量kg": st.column_config.NumberColumn("納品量kg", step=10.0, width="small"),
                 "飼料銘柄": st.column_config.SelectboxColumn("飼料銘柄", options=brand_names_list, width="medium"),
@@ -560,7 +575,8 @@ with tab2:
                     "house_humidity":    float(row["湿度%"])     if pd.notna(row["湿度%"])     else None,
                     "outside_temp_max":  float(row["外気最高℃"]) if pd.notna(row["外気最高℃"]) else None,
                     "outside_temp_min":  float(row["外気最低℃"]) if pd.notna(row["外気最低℃"]) else None,
-                    "feed_intake":       float(row["採食量kg"])  if pd.notna(row["採食量kg"])  and float(row["採食量kg"] or 0) > 0 else None,
+                    "feed_duration_min":    float(row["採食時間min"])     if pd.notna(row.get("採食時間min"))     and float(row.get("採食時間min") or 0) > 0 else None,
+                        "feed_transfer_coef":   float(row["搬送係数kg/min"])  if pd.notna(row.get("搬送係数kg/min"))  and float(row.get("搬送係数kg/min") or 0) > 0 else None,
                     "water_intake":      float(row["飲水量L"])   if pd.notna(row["飲水量L"])   and float(row["飲水量L"]  or 0) > 0 else None,
                     "feed_delivery_qty": float(row["納品量kg"])  if pd.notna(row["納品量kg"])  and float(row["納品量kg"] or 0) > 0 else None,
                     "feed_brand_id":     brand_opts.get(row["飼料銘柄"]) if pd.notna(row.get("飼料銘柄")) and row["飼料銘柄"] != "なし" else None,
@@ -650,7 +666,11 @@ with tab3:
             ax.plot(df["日齢"], df["標準体重_g"], "--", label="Ross308(g)", color="orange", alpha=0.7)
             ax.set_ylabel("Body Weight (g)")
         elif item == "採食量（実績 vs 標準）":
-            ax.bar(df["日齢"], df["feed_intake"], label="Actual(kg)", color="steelblue", alpha=0.7)
+            df["feed_intake_kg"] = df.apply(
+                lambda r: round(r["feed_duration_min"] * r["feed_transfer_coef"], 2)
+                if pd.notna(r.get("feed_duration_min")) and pd.notna(r.get("feed_transfer_coef"))
+                else None, axis=1)
+            ax.bar(df["日齢"], df["feed_intake_kg"], label="Actual(kg)", color="steelblue", alpha=0.7)
             std = df["標準採食量_g"].apply(
                 lambda g: g / 1000 * g_fh_obj["chick_in_count"] if g else None)
             ax.plot(df["日齢"], std, "--", label="Ross308(kg)", color="orange")
