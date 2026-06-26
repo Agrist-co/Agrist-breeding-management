@@ -667,10 +667,10 @@ with tab3:
             ax.set_ylabel("Body Weight (g)")
         elif item == "採食量（実績 vs 標準）":
             df["feed_intake_kg"] = df.apply(
-                lambda r: round(r["feed_duration_min"] * r["feed_transfer_coef"], 2)
+                lambda r: round(float(r["feed_duration_min"]) * float(r["feed_transfer_coef"]), 2)
                 if pd.notna(r.get("feed_duration_min")) and pd.notna(r.get("feed_transfer_coef"))
-                else None, axis=1)
-            ax.bar(df["日齢"], df["feed_intake_kg"], label="Actual(kg)", color="steelblue", alpha=0.7)
+                else 0.0, axis=1)
+            ax.bar(df["日齢"], df["feed_intake_kg"].fillna(0.0), label="Actual(kg)", color="steelblue", alpha=0.7)
             std = df["標準採食量_g"].apply(
                 lambda g: g / 1000 * g_fh_obj["chick_in_count"] if g else None)
             ax.plot(df["日齢"], std, "--", label="Ross308(kg)", color="orange")
