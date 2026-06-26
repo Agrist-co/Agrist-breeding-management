@@ -508,7 +508,7 @@ with tab2:
             "mortality_count", "culling_count",
             "house_temp_max", "house_temp_min", "house_humidity",
             "outside_temp_max", "outside_temp_min",
-            "feed_duration_min", "water_intake", "feed_delivery_qty",
+            "feed_duration_min", "採食量kg", "water_intake", "feed_delivery_qty",
             "飼料銘柄", "avg_body_weight", "work_log", "担当者"
         ]].copy()
 
@@ -518,7 +518,7 @@ with tab2:
             "斃死", "淘汰",
             "舎内最高℃", "舎内最低℃", "湿度%",
             "外気最高℃", "外気最低℃",
-            "採食時間min", "飲水量L", "納品量kg",
+            "採食時間min", "採食量kg", "飲水量L", "納品量kg",
             "飼料銘柄", "平均体重g", "作業日誌", "担当者"
         ]
 
@@ -546,6 +546,7 @@ with tab2:
                 "外気最高℃": st.column_config.NumberColumn("外気最高℃", step=0.1, width="small"),
                 "外気最低℃": st.column_config.NumberColumn("外気最低℃", step=0.1, width="small"),
                 "採食時間min": st.column_config.NumberColumn("採食時間min", step=1.0, width="small"),
+                "採食量kg":   st.column_config.NumberColumn("採食量kg", disabled=True, width="small", help="採食時間×搬送係数（自動計算）"),
                 "飲水量L":  st.column_config.NumberColumn("飲水量L",  step=0.1, width="small"),
                 "納品量kg": st.column_config.NumberColumn("納品量kg", step=10.0, width="small"),
                 "飼料銘柄": st.column_config.SelectboxColumn("飼料銘柄", options=brand_names_list, width="medium"),
