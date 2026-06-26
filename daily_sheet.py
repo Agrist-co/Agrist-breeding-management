@@ -208,73 +208,143 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     df["adj_rate"]    = adj_rates
     df["act_feed_kg"] = actual_feed
 
+    # ----------------------------------------------------------
     # タンク残量シミュレーション
+    # 発注ルール:
+    #   タンク残量 ≦ min_alert(200kg) になったら配送単位(std_qty)で発注
+    #   繰り返し条件: 予測採食量累計 - 予測配送量累計 > 配送単位
+    #     → 再度配送単位で発注
+    #   終了条件: 予測採食量累計 - 予測配送量累計 ≦ 配送単位
+    #     → 最終発注量 = 予測採食量累計 - 予測配送量累計（端数）
+    # ----------------------------------------------------------
     pred_tank   = np.zeros(len(df))
     real_tank   = np.full(len(df), np.nan)
     delivery_kg = np.zeros(len(df))
     event_notes = [""] * len(df)
     allocated_pre, allocated_mid = first_qty, 0.0
 
+    # 累計管理
+    cum_feed_kg     = 0.0   # 予測採食量累計
+    cum_delivery_kg = first_qty  # 予測配送量累計（初回納入量を含む）
+
     pred_tank[0] = first_qty
     real_tank[0] = first_qty
     event_notes[0] = f"初回: {first_qty:.0f}kg"
-    evening_pred = first_qty - df.loc[0, "act_feed_kg"]
+    cum_feed_kg  += df.loc[0, "act_feed_kg"]
+    evening_pred  = first_qty - df.loc[0, "act_feed_kg"]
+
+    def get_order_note(qty, allocated_pre, allocated_mid, pre_limit, mid_limit):
+        """発注種別メモを生成（前期/中期/仕上の混載判定）"""
+        rem_pre = max(pre_limit - allocated_pre, 0) if pre_limit > 0 else 0
+        rem_mid = max(mid_limit - allocated_mid, 0) if mid_limit > 0 else 0
+        if rem_pre > 0:
+            if rem_pre >= qty:
+                return f"前期: {qty:.0f}kg", qty, 0
+            else:
+                mix = qty - rem_pre
+                label = f"前期{rem_pre:.0f}/中期{mix:.0f}kg" if mid_limit > 0 else f"前期{rem_pre:.0f}/仕上{mix:.0f}kg"
+                return label, rem_pre, mix if mid_limit > 0 else 0
+        elif rem_mid > 0:
+            if rem_mid >= qty:
+                return f"中期: {qty:.0f}kg", 0, qty
+            else:
+                mix = qty - rem_mid
+                return f"中期{rem_mid:.0f}/仕上{mix:.0f}kg", 0, rem_mid
+        else:
+            return f"仕上: {qty:.0f}kg", 0, 0
 
     for d in range(1, len(df)):
-        pred_tank[d] = evening_pred
+        pred_tank[d]  = evening_pred
+        daily_feed    = df.loc[d, "act_feed_kg"]
+
         if d in act_dict and act_dict[d].get("actual_tank") is not None:
-            real_tank[d]   = act_dict[d]["actual_tank"]
-            pred_tank[d]   = real_tank[d]
-            delivery_kg[d] = act_dict[d].get("delivered", 0)
-            event_notes[d] = f"実績: 残{real_tank[d]:.0f}kg"
-            if pre_limit > 0 and allocated_pre < pre_limit: allocated_pre += delivery_kg[d]
-            elif mid_limit > 0 and allocated_mid < mid_limit: allocated_mid += delivery_kg[d]
-            evening_pred = real_tank[d] + delivery_kg[d] - df.loc[d, "act_feed_kg"]
+            # ---- 実績確定日 ----
+            real_tank[d]    = act_dict[d]["actual_tank"]
+            pred_tank[d]    = real_tank[d]
+            delivery_kg[d]  = act_dict[d].get("delivered", 0)
+            cum_delivery_kg += delivery_kg[d]
+            event_notes[d]  = f"実績: 残{real_tank[d]:.0f}kg 納品{delivery_kg[d]:.0f}kg"
+            if pre_limit > 0 and allocated_pre < pre_limit:
+                allocated_pre += delivery_kg[d]
+            elif mid_limit > 0 and allocated_mid < mid_limit:
+                allocated_mid += delivery_kg[d]
+            cum_feed_kg  += daily_feed
+            evening_pred  = real_tank[d] + delivery_kg[d] - daily_feed
+
         elif d > today_day:
-            tomorrow_need = df.loc[d, "act_feed_kg"]
-            if pred_tank[d] <= min_alert or pred_tank[d] < tomorrow_need:
-                delivery_kg[d] = std_qty
-                rem_pre = (pre_limit - allocated_pre) if pre_limit > 0 else 0
-                rem_mid = (mid_limit - allocated_mid) if mid_limit > 0 else 0
-                if rem_pre > 0:
-                    if rem_pre >= std_qty:
-                        allocated_pre += std_qty
-                        event_notes[d] = f"通常発注(前期): {std_qty:.0f}kg"
-                    else:
-                        mix = std_qty - rem_pre
-                        allocated_pre += rem_pre
-                        event_notes[d] = f"混載(前期{rem_pre:.0f}/中{mix:.0f}kg)" if mid_limit > 0 else f"混載(前期{rem_pre:.0f}/仕上{mix:.0f}kg)"
-                        if mid_limit > 0: allocated_mid += mix
-                elif rem_mid > 0:
-                    if rem_mid >= std_qty:
-                        allocated_mid += std_qty
-                        event_notes[d] = f"通常発注(中期): {std_qty:.0f}kg"
-                    else:
-                        mix = std_qty - rem_mid
-                        allocated_mid += rem_mid
-                        event_notes[d] = f"混載(中期{rem_mid:.0f}/仕上{mix:.0f}kg)"
+            # ---- 未来日：発注判定 ----
+            cum_feed_kg += daily_feed
+
+            if pred_tank[d] <= min_alert:
+                # 残量不足 → 発注
+                # 繰り返し発注判定
+                remaining_need = cum_feed_kg - cum_delivery_kg
+
+                if remaining_need <= 0:
+                    # 既に配送量が足りている
+                    pass
+                elif remaining_need <= std_qty:
+                    # 端数発注（最終発注）
+                    order_qty = round(remaining_need, 0)
+                    delivery_kg[d] += order_qty
+                    cum_delivery_kg += order_qty
+                    note, add_pre, add_mid = get_order_note(
+                        order_qty, allocated_pre, allocated_mid, pre_limit, mid_limit)
+                    allocated_pre += add_pre
+                    allocated_mid += add_mid
+                    event_notes[d] = f"最終発注({note})"
                 else:
-                    event_notes[d] = f"通常発注(仕上): {std_qty:.0f}kg"
-            evening_pred = pred_tank[d] + delivery_kg[d] - df.loc[d, "act_feed_kg"]
+                    # 配送単位で発注（必要に応じて複数回）
+                    total_order = 0.0
+                    notes_list  = []
+                    while cum_feed_kg - (cum_delivery_kg + total_order) > std_qty:
+                        total_order += std_qty
+                        note, add_pre, add_mid = get_order_note(
+                            std_qty, allocated_pre, allocated_mid, pre_limit, mid_limit)
+                        allocated_pre += add_pre
+                        allocated_mid += add_mid
+                        notes_list.append(note)
+                    # 最後の端数
+                    final_need = cum_feed_kg - (cum_delivery_kg + total_order)
+                    if final_need > 0:
+                        total_order += final_need
+                        note, add_pre, add_mid = get_order_note(
+                            final_need, allocated_pre, allocated_mid, pre_limit, mid_limit)
+                        allocated_pre += add_pre
+                        allocated_mid += add_mid
+                        notes_list.append(f"端数{note}")
+                    delivery_kg[d] += total_order
+                    cum_delivery_kg += total_order
+                    event_notes[d]   = " + ".join(notes_list) if notes_list else f"発注: {total_order:.0f}kg"
+
+            evening_pred = pred_tank[d] + delivery_kg[d] - daily_feed
+
         else:
-            # 実績日（実測なし）- 日次記録の採食量で計算
+            # ---- 実績日（実測なし）----
             r = rec_by_day.get(d, {})
             if r and house_coef > 0 and r.get("feed_duration_min"):
-                brand_id  = r.get("feed_brand_id")
-                brand_obj = next((b for b in feed_brands if b["feed_brand_id"] == brand_id), {}) if brand_id else get_brand_for_age(d, active_brs) or {}
-                ratio     = float(brand_obj.get("transfer_coef_ratio") or 1.0)
+                brand_id   = r.get("feed_brand_id")
+                brand_obj  = next((b for b in feed_brands if b["feed_brand_id"] == brand_id), {}) \
+                             if brand_id else get_brand_for_age(d, active_brs) or {}
+                ratio      = float(brand_obj.get("transfer_coef_ratio") or 1.0)
                 real_intake = float(r["feed_duration_min"]) * house_coef * ratio
                 delivery_today = float(r.get("feed_delivery_qty") or 0)
-                evening_pred = pred_tank[d] + delivery_today - real_intake
-                actual_feed[d] = real_intake
+                actual_feed[d]  = real_intake
+                cum_feed_kg    += real_intake
+                cum_delivery_kg += delivery_today
+                evening_pred    = pred_tank[d] + delivery_today - real_intake
             else:
-                evening_pred = pred_tank[d] - df.loc[d, "act_feed_kg"]
+                cum_feed_kg += daily_feed
+                evening_pred = pred_tank[d] - daily_feed
 
     df["pred_tank"]   = pred_tank
     df["real_tank"]   = real_tank
     df["delivery_kg"] = delivery_kg
     df["event_notes"] = event_notes
     df["act_feed_kg"] = actual_feed
+    # 累計列を追加（確認用）
+    df["cum_feed_kg"]     = df["act_feed_kg"].cumsum()
+    df["cum_delivery_kg"] = df["delivery_kg"].cumsum() + first_qty
     return df
 ross_dict   = {(r["sex"], r["day"]): r for r in ross308}
 
@@ -633,16 +703,18 @@ with forecast_tab:
         # 編集用DataFrameを構築
         # 実測残量・調整発注量は編集可能、それ以外は読み取り専用
         edit_df = pd.DataFrame({
-            "日齢":       df_fc["day"].astype(int),
-            "月日":       df_fc["date_str"],
-            "今日":       df_fc["day"].apply(lambda d: "◀" if d == today_day_fc else ""),
-            "採食kg":     df_fc["act_feed_kg"].round(1),
-            "補正率":     df_fc["adj_rate"].round(3),
-            "予測残量kg": df_fc["pred_tank"].round(0),
-            "実測残量kg": df_fc["real_tank"].apply(
+            "日齢":         df_fc["day"].astype(int),
+            "月日":         df_fc["date_str"],
+            "今日":         df_fc["day"].apply(lambda d: "◀" if d == today_day_fc else ""),
+            "採食kg":       df_fc["act_feed_kg"].round(1),
+            "採食累計kg":   df_fc["cum_feed_kg"].round(0),
+            "補正率":       df_fc["adj_rate"].round(3),
+            "予測残量kg":   df_fc["pred_tank"].round(0),
+            "実測残量kg":   df_fc["real_tank"].apply(
                 lambda x: float(x) if not (isinstance(x, float) and np.isnan(x)) else None),
-            "調整発注kg": df_fc["delivery_kg"].apply(lambda x: float(x) if x > 0 else None),
-            "発注種別":   df_fc["event_notes"],
+            "調整発注kg":   df_fc["delivery_kg"].apply(lambda x: float(x) if x > 0 else None),
+            "配送累計kg":   df_fc["cum_delivery_kg"].round(0),
+            "発注種別":     df_fc["event_notes"],
         })
 
         edited_fc = st.data_editor(
@@ -655,16 +727,18 @@ with forecast_tab:
                 "日齢":       st.column_config.NumberColumn("日齢",    disabled=True, width=45),
                 "月日":       st.column_config.TextColumn(  "月日",    disabled=True, width=55),
                 "今日":       st.column_config.TextColumn(  "",        disabled=True, width=30),
-                "採食kg":     st.column_config.NumberColumn("採食kg",  disabled=True, width=65),
-                "補正率":     st.column_config.NumberColumn("補正率",  disabled=True, width=60),
-                "予測残量kg": st.column_config.NumberColumn("予測残量kg", disabled=True, width=80),
+                "採食kg":       st.column_config.NumberColumn("採食kg",     disabled=True, width=60),
+                "採食累計kg":   st.column_config.NumberColumn("採食累計kg", disabled=True, width=75),
+                "補正率":       st.column_config.NumberColumn("補正率",     disabled=True, width=55),
+                "予測残量kg":   st.column_config.NumberColumn("予測残量kg", disabled=True, width=80),
                 "実測残量kg": st.column_config.NumberColumn("実測残量kg",
                     min_value=0.0, step=10.0, width=85,
                     help="納品直前の実測タンク残量を入力→自動再計算"),
-                "調整発注kg": st.column_config.NumberColumn("調整発注kg",
+                "調整発注kg":   st.column_config.NumberColumn("調整発注kg",
                     min_value=0.0, step=500.0, width=85,
                     help="発注量を手動で変更→自動再計算"),
-                "発注種別":   st.column_config.TextColumn("発注種別", disabled=True, width=180),
+                "配送累計kg":   st.column_config.NumberColumn("配送累計kg", disabled=True, width=75),
+                "発注種別":     st.column_config.TextColumn("発注種別",   disabled=True, width=180),
             },
             key=f"fc_editor_{sel_fh_id}"
         )
