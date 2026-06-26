@@ -49,6 +49,26 @@ hr { margin: 0.3rem 0 !important; }
 .stCaption, [data-testid="stCaptionContainer"] { font-size: 0.70rem !important; }
 .stTabs [data-baseweb="tab"] { font-size: 0.80rem !important; padding: 0.25rem 0.7rem !important; }
 div[data-testid="stVerticalBlock"] > div { gap: 0.15rem !important; }
+
+/* data_editor セル編集枠をセルサイズに合わせる */
+div[data-testid="stDataFrameResizable"] input {
+    height: 100% !important;
+    min-height: unset !important;
+    padding: 0 4px !important;
+    margin: 0 !important;
+    font-size: 0.82rem !important;
+    box-sizing: border-box !important;
+    border-radius: 2px !important;
+}
+/* 編集枠（赤枠）をセル境界内に収める */
+[class*="gdg-style"] input,
+[class*="cell-edit"] input {
+    height: 100% !important;
+    padding: 0 4px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    border-radius: 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
