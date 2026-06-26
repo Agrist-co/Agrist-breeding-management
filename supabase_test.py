@@ -1,5 +1,5 @@
 """
-Supabase接続テスト（v2: lots/flock_houses対応版）
+Supabase接続テスト（v3: lot_numbers対応版）
 """
 
 import streamlit as st
@@ -7,9 +7,6 @@ import pandas as pd
 
 st.title("🔌 Supabase接続テスト")
 
-# ----------------------------------------------------------
-# 1. Supabaseクライアント初期化
-# ----------------------------------------------------------
 try:
     from supabase import create_client, Client
     url = st.secrets["supabase"]["url"]
@@ -26,9 +23,6 @@ except Exception as e:
     st.error(f"❌ 接続エラー: {e}")
     st.stop()
 
-# ----------------------------------------------------------
-# 2. テーブル確認
-# ----------------------------------------------------------
 st.subheader("📊 テーブル確認")
 
 tests = [
@@ -40,7 +34,7 @@ tests = [
     ("houses",                  "鶏舎マスタ"),
     ("feed_brands",             "飼料銘柄マスタ"),
     ("workers",                 "担当者マスタ"),
-    ("lots",                    "ロット"),
+    ("lot_numbers",             "ロット番号マスタ"),
     ("flock_houses",            "鶏舎割当"),
     ("daily_records",           "日次記録"),
 ]
@@ -53,11 +47,7 @@ for table, label in tests:
     except Exception as e:
         st.write(f"❌ `{table}`（{label}）: エラー → {e}")
 
-# ----------------------------------------------------------
-# 3. Ross308データ簡易表示
-# ----------------------------------------------------------
 st.subheader("📈 Ross308 As-Hatched（1〜7日齢）")
-
 try:
     res = supabase.table("ross308_standard") \
         .select("day, weight_g, daily_intake_g, fcr") \
