@@ -191,19 +191,30 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     adj_rates   = np.ones(len(df))
     actual_feed = df["std_feed_kg"].values.copy()
 
-    # 統合タンク残量辞書: adj_tank_mapで手入力値がある日はact_dictを上書き
+    # 統合タンク残量辞書: 0日齢(first_qty)を起点に、act_dict→adj_tank_mapで上書き
     combined_tank = {}
+
+    # 0日齢: 初回投入量を起点として登録
+    combined_tank[0] = {
+        "actual_tank": first_qty,
+        "delivered":   0,
+    }
+    # Supabase確定値
     for d, v in act_dict.items():
         if v.get("actual_tank") is not None:
             combined_tank[d] = {
                 "actual_tank": v["actual_tank"],
                 "delivered":   v.get("delivered", 0),
             }
+    # 手入力実測残量（Supabaseを上書き）
     for d, tank_val in adj_tank_map.items():
         combined_tank[d] = {
             "actual_tank": tank_val,
             "delivered":   adj_delivery_map.get(d, 0),
         }
+
+    # day→indexの逆引き辞書
+    day_to_idx = {int(df.loc[i, "day"]): i for i in range(len(df))}
 
     sorted_act  = sorted(combined_tank.keys())
     latest_rate = weighted_corr
@@ -211,25 +222,36 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     if len(sorted_act) > 1:
         for i in range(len(sorted_act) - 1):
             s, e = sorted_act[i], sorted_act[i+1]
-            s_tank   = combined_tank[s]["actual_tank"]
-            e_tank   = combined_tank[e]["actual_tank"]
-            delivered_between = sum(
-                combined_tank[d].get("delivered", 0)
-                for d in range(s+1, e+1) if d in combined_tank
-            )
+            s_tank = combined_tank[s]["actual_tank"]
+            e_tank = combined_tank[e]["actual_tank"]
+
+            # 区間内の納品量: daily_records + adj_delivery_map
+            delivered_between = 0.0
+            for dd in range(s + 1, e + 1):
+                if dd in combined_tank:
+                    delivered_between += combined_tank[dd].get("delivered", 0)
+                elif dd in rec_by_day:
+                    delivered_between += float(rec_by_day[dd].get("feed_delivery_qty") or 0)
+
             consumed = s_tank + delivered_between - e_tank
-            std_cons = df.loc[df["day"].between(s, e-1), "std_feed_kg"].sum()
+            # 区間s〜e-1の標準採食量合計
+            std_cons = sum(
+                df.loc[day_to_idx[d], "std_feed_kg"]
+                for d in range(s, e) if d in day_to_idx
+            )
             rate = consumed / std_cons if std_cons > 0 else 1.0
             latest_rate = rate
             for d in range(s, e):
-                if d < len(df):
-                    adj_rates[d]   = rate
-                    actual_feed[d] = df.loc[df["day"] == d, "std_feed_kg"].values[0] * rate if d in df["day"].values else actual_feed[d]
+                if d in day_to_idx:
+                    idx = day_to_idx[d]
+                    adj_rates[idx]   = rate
+                    actual_feed[idx] = df.loc[idx, "std_feed_kg"] * rate
 
-    last_act  = sorted_act[-1] if sorted_act else 0
-    today_day = (date.today() - chick_date).days
-    for idx, d in enumerate(df["day"]):
-        if d >= last_act:
+    # 最後の実測残量日以降（last_act含む）: 最新区間補正率を継続適用
+    last_act = sorted_act[-1] if sorted_act else 0
+    for d in df["day"]:
+        if d >= last_act and d in day_to_idx:
+            idx = day_to_idx[d]
             actual_feed[idx] = df.loc[idx, "std_feed_kg"] * latest_rate
             adj_rates[idx]   = latest_rate
 
@@ -703,16 +725,19 @@ try:
         adj_dict=adj_dict)
 
     # ---- デバッグ情報 ----
-    with st.expander("🔍 デバッグ情報（発注計算が出ない場合に確認）", expanded=False):
+    with st.expander("🔍 デバッグ情報", expanded=False):
         today_day_dbg = (date.today() - chick_in_date).days
         first_qty_dbg = float(sel_fh.get("initial_feed_delivery_qty") or 0)
         st.write(f"**今日の日齢**: {today_day_dbg}日 / **出荷日齢**: {planned_age}日")
         st.write(f"**初回投入量**: {first_qty_dbg:,.0f} kg")
         st.write(f"**配送単位**: {fc_std_qty:,.0f} kg / **最低残量アラート**: {fc_min_alert:,.0f} kg")
         st.write(f"**補正係数**: {float(sel_fh.get('feed_correction_factor') or 1.0):.3f}")
-        dbg_df = df_fc[["day","date_str","act_feed_kg","std_feed_kg","cum_feed_kg","pred_tank","delivery_kg","event_notes"]].copy()
-        dbg_df.columns = ["日齢","月日","予測採食","標準採食","採食累計","予測残量","発注量","備考"]
-        st.dataframe(dbg_df.round(1), use_container_width=True, hide_index=True)
+        # 補正率計算の確認
+        st.write("**adj_dict（実測残量・確定発注）**:", adj_dict)
+        # 区間補正率の確認（df_fcのadj_rateを確認）
+        rate_chk = df_fc[["day","date_str","adj_rate","act_feed_kg","std_feed_kg","pred_tank","delivery_kg"]].copy()
+        rate_chk.columns = ["日齢","月日","補正率","予測採食","標準採食","予測残量","発注量"]
+        st.dataframe(rate_chk.round(4), use_container_width=True, hide_index=True)
 
     # ---- Step4: 編集可能なシミュレーション表 ----
     st.markdown("#### 📊 タンク残量シミュレーション（直接編集→自動再計算）")
