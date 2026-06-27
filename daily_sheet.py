@@ -175,6 +175,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     }
 
     # 全日齢の標準採食量（環境補正＋加重平均補正込み）
+    # 出荷前日18時給餌停止: 出荷前日を0.75掛け、出荷日は採食0
     days = list(range(0, shipping_age + 1))
     std_feed = []
     for d in days:
@@ -182,7 +183,8 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         std = (r.get("daily_intake_g") or 0) * total_birds / 1000
         env = get_env_correction(avg_temp, avg_hum, r.get("weight_g") or 1000)
         kg  = std * env * weighted_corr
-        if d == 45: kg *= 0.75  # 給餌停止
+        if d == shipping_age - 1: kg *= 0.75  # 出荷前日18時給餌停止
+        if d == shipping_age:     kg  = 0.0   # 出荷日は採食なし
         std_feed.append(kg)
 
     df = pd.DataFrame({"day": days, "std_feed_kg": std_feed})
