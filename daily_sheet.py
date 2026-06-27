@@ -258,12 +258,14 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         daily_feed   = df.loc[d, "act_feed_kg"]
         r            = rec_by_day.get(d, {})
 
-        # ── 実測残量補正: adj_tank_mapに値があればevening_predを上書き ──
-        # （確定発注・予測発注とは独立して pred_tank を補正する）
+        # pred_tank[d] = 前日evening_predを引き継ぐ（朝のタンク残量）
+        pred_tank[d] = evening_pred
+
+        # ── 実測残量補正: adj_tank_mapに値があればpred_tank(朝残量)を実測値で上書き ──
+        # 実測残量 = 納品直前の朝タンク残量 → pred_tankを補正し、採食後evening_predへ
         if d in adj_tank_map:
             real_tank[d] = adj_tank_map[d]
-            evening_pred = adj_tank_map[d]  # この日の朝タンク残量を実測値で補正
-        pred_tank[d] = evening_pred
+            pred_tank[d] = adj_tank_map[d]
 
         # ── 優先1: Supabase実測タンク残量あり（feed_order_details確定値） ──
         if d in act_dict and act_dict[d].get("actual_tank") is not None:
@@ -754,29 +756,23 @@ try:
     # ---- Step5: 変更を検知してadj_dictを更新→自動再計算 ----
     new_adj = {}
     for i, row in edited_fc.iterrows():
-        day     = int(row["日齢"])
-        changed = False
-        entry   = {}
-        # 実測残量の変更を検知（adj_dictに保存→予測残量補正に使用）
-        orig_real = edit_df.at[i, "実測残量kg"]
-        new_real  = row.get("実測残量kg")
-        if new_real is not None and pd.notna(new_real) and float(new_real) >= 0:
+        day   = int(row["日齢"])
+        entry = {}
+
+        # 実測残量: セルの現在値を取得（Noneでなければ保存）
+        new_real = row.get("実測残量kg")
+        if new_real is not None and pd.notna(new_real):
             entry["actual_tank"] = float(new_real)
-            if new_real != orig_real:
-                changed = True
-        elif orig_real is not None and pd.notna(orig_real):
-            entry["actual_tank"] = float(orig_real)
-        # 調整発注量（入力があれば必ず保存、空欄=予定発注に戻す）
-        orig_del = edit_df.at[i, "調整発注kg"]
-        new_del  = row.get("調整発注kg")
+
+        # 調整発注量: 入力があれば保存、空欄=自動予測に戻す
+        new_del = row.get("調整発注kg")
         if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
             entry["delivered"] = float(new_del)
-            if new_del != orig_del:
-                changed = True
+
         if entry:
             new_adj[day] = entry
 
-    # adj_dictが変わったらsession_stateに保存（→次のレンダリングで自動再計算）
+    # adj_dictが変わったらsession_stateに保存→自動再計算
     if new_adj != adj_dict:
         st.session_state[adj_key] = new_adj
         st.rerun()
