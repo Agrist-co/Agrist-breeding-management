@@ -238,11 +238,13 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     if len(sorted_act) > 1:
         for i in range(len(sorted_act) - 1):
             s, e = sorted_act[i], sorted_act[i+1]
-            s_tank = combined_tank[s]["actual_tank"]
-            e_tank = combined_tank[e]["actual_tank"]
+            # s_tank = 実測残量 + s日の納品量（実測後に投入される分）
+            s_tank_raw = combined_tank[s]["actual_tank"]
+            s_delivery = combined_tank[s].get("delivered", 0)
+            s_tank     = s_tank_raw + s_delivery
+            e_tank     = combined_tank[e]["actual_tank"]
 
-            # 区間内の途中納品量（s+1〜e-1のみ、e日の納品は含めない）
-            # e日の納品は実測残量計測後の投入なので次区間の起点に含まれる
+            # 区間内の途中納品量（s+1〜e-1のみ、e日の納品は次区間の起点に含まれる）
             delivered_between = 0.0
             for dd in range(s + 1, e):
                 if dd in combined_tank:
