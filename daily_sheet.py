@@ -158,15 +158,14 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             }
 
     # adj_dict（ユーザー調整値）をact_dictにマージ
-    # actual_tank: 実測残量（計算の起点を補正）
-    # delivered: 調整発注量（予定発注を上書き）
+    # actual_tankがある場合のみact_dictに追加（区間補正率計算に使用）
+    # deliveredはadj_delivery_mapで別管理（act_dictには入れない）
     if adj_dict:
         for day, adj in adj_dict.items():
-            if day not in act_dict:
-                act_dict[day] = {}
             if adj.get("actual_tank") is not None:
+                if day not in act_dict:
+                    act_dict[day] = {}
                 act_dict[day]["actual_tank"] = adj["actual_tank"]
-            # deliveredはact_dictには入れない（未来日の発注上書き用）
     # 調整発注辞書（未来日の発注量を上書き）
     adj_delivery_map = {
         int(day): float(v["delivered"])
@@ -193,7 +192,8 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     # 区間補正率
     adj_rates   = np.ones(len(df))
     actual_feed = df["std_feed_kg"].values.copy()  # 書き込み可能なコピー
-    sorted_act  = sorted(act_dict.keys())
+    # actual_tankがある日のみ区間補正率計算の対象
+    sorted_act  = sorted(k for k in act_dict.keys() if act_dict[k].get("actual_tank") is not None)
     latest_rate = weighted_corr
 
     if len(sorted_act) > 1:
