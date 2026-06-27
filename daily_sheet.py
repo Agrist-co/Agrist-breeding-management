@@ -262,25 +262,48 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     for d in range(1, len(df)):
         pred_tank[d] = evening_pred
         daily_feed   = df.loc[d, "act_feed_kg"]
+        r            = rec_by_day.get(d, {})
 
+        # ── 優先1: 実測タンク残量あり（納品直前の確定値） ──
         if d in act_dict and act_dict[d].get("actual_tank") is not None:
             real_tank[d]    = act_dict[d]["actual_tank"]
             pred_tank[d]    = real_tank[d]
             delivery_kg[d]  = act_dict[d].get("delivered", 0)
             cum_delivery_kg += delivery_kg[d]
             cum_feed_kg     += daily_feed
-            event_notes[d]   = f"実績: 残{real_tank[d]:.0f}kg 納品{delivery_kg[d]:.0f}kg"
-            evening_pred     = real_tank[d] + delivery_kg[d] - daily_feed
+            event_notes[d]  = f"実績: 残{real_tank[d]:.0f}kg 納品{delivery_kg[d]:.0f}kg"
+            evening_pred    = real_tank[d] + delivery_kg[d] - daily_feed
 
-        elif d > max(today_day, 0):
+        # ── 優先2: 日次記録あり（採食時間 or 納品量） ──
+        elif r and (r.get("feed_duration_min") or r.get("feed_delivery_qty")):
+            dt = float(r.get("feed_delivery_qty") or 0)
+            cum_delivery_kg += dt
+            if house_coef > 0 and r.get("feed_duration_min"):
+                bid   = r.get("feed_brand_id")
+                bobj  = next((b for b in feed_brands if b["feed_brand_id"] == bid), {})                         if bid else get_brand_for_age(d, active_brs) or {}
+                ratio = float(bobj.get("transfer_coef_ratio") or 1.0)
+                ri    = float(r["feed_duration_min"]) * house_coef * ratio
+                actual_feed[d] = ri
+                cum_feed_kg   += ri
+                evening_pred   = pred_tank[d] + dt - ri
+                event_notes[d] = f"実績採食: {ri:.0f}kg 納品{dt:.0f}kg"
+            else:
+                cum_feed_kg   += daily_feed
+                evening_pred   = pred_tank[d] + dt - daily_feed
+                event_notes[d] = f"納品{dt:.0f}kg" if dt > 0 else ""
+
+        # ── 優先3: 調整発注（手動上書き） ──
+        elif d in adj_delivery_map:
+            cum_feed_kg     += daily_feed
+            adj_qty          = adj_delivery_map[d]
+            delivery_kg[d]   = adj_qty
+            cum_delivery_kg += adj_qty
+            event_notes[d]   = f"[調整] {get_order_note_for_day(d, adj_qty)}"
+            evening_pred     = pred_tank[d] + adj_qty - daily_feed
+
+        # ── 優先4: 予測発注計算（記録なし・未来日） ──
+        else:
             cum_feed_kg += daily_feed
-            if d in adj_delivery_map:
-                adj_qty         = adj_delivery_map[d]
-                delivery_kg[d]  = adj_qty
-                cum_delivery_kg += adj_qty
-                event_notes[d]  = f"[調整] {get_order_note_for_day(d, adj_qty)}"
-                evening_pred    = pred_tank[d] + adj_qty - daily_feed
-                continue
             if pred_tank[d] <= min_alert:
                 remaining_need = cum_feed_kg - cum_delivery_kg
                 if remaining_need <= 0:
@@ -311,22 +334,6 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                     event_notes[d] = " ＋ ".join(
                         f"{n}×{c}" if c > 1 else n for n, c in seen.items())
             evening_pred = pred_tank[d] + delivery_kg[d] - daily_feed
-
-        else:
-            r = rec_by_day.get(d, {})
-            dt = float(r.get("feed_delivery_qty") or 0) if r else 0
-            cum_delivery_kg += dt
-            if r and house_coef > 0 and r.get("feed_duration_min"):
-                bid   = r.get("feed_brand_id")
-                bobj  = next((b for b in feed_brands if b["feed_brand_id"] == bid), {})                         if bid else get_brand_for_age(d, active_brs) or {}
-                ratio = float(bobj.get("transfer_coef_ratio") or 1.0)
-                ri    = float(r["feed_duration_min"]) * house_coef * ratio
-                actual_feed[d]  = ri
-                cum_feed_kg    += ri
-                evening_pred    = pred_tank[d] + dt - ri
-            else:
-                cum_feed_kg += daily_feed
-                evening_pred = pred_tank[d] + dt - daily_feed
 
     df["pred_tank"]       = pred_tank
     df["real_tank"]       = real_tank
@@ -829,8 +836,11 @@ try:
         st.markdown("#### 📤 発注日範囲指定・発注登録")
         st.caption("発注したい範囲（納品予定日）を指定して、その期間の発注を一括登録します")
 
-        min_date = order_plan["納品予定日_dt"].min().date()
-        max_date = order_plan["納品予定日_dt"].max().date()
+        # date_objはdatetime.date型なのでそのまま使用
+        min_date = order_plan["納品予定日_dt"].min()
+        max_date = order_plan["納品予定日_dt"].max()
+        if hasattr(min_date, "date"): min_date = min_date.date()
+        if hasattr(max_date, "date"): max_date = max_date.date()
 
         dr1, dr2 = st.columns(2)
         with dr1:
@@ -844,9 +854,11 @@ try:
                 key="fc_range_to")
 
         # 対象発注を絞り込み
+        _dt_as_date = order_plan["納品予定日_dt"].apply(
+            lambda x: x if isinstance(x, date) else x.date())
         sel_orders = order_plan[
-            (order_plan["納品予定日_dt"].dt.date >= range_from) &
-            (order_plan["納品予定日_dt"].dt.date <= range_to)
+            (_dt_as_date >= range_from) &
+            (_dt_as_date <= range_to)
         ]
 
         if sel_orders.empty:
