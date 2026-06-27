@@ -208,7 +208,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     # 統合タンク残量辞書: 0日齢(first_qty)を起点に、act_dict→adj_tank_mapで上書き
     combined_tank = {}
 
-    # 0日齢: 初回投入量を起点として登録
+    # 0日齢: initial_feed_delivery_qtyを起点として登録
     combined_tank[0] = {
         "actual_tank": first_qty,
         "delivered":   0,
@@ -292,13 +292,6 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     delivery_kg = np.zeros(len(df))
     event_notes = [""] * len(df)
 
-    # 0日齢: 初回投入量でタンク満載（予定発注列には出さない）
-    pred_tank[0]   = first_qty
-    real_tank[0]   = first_qty
-    event_notes[0] = f"初回投入: {first_qty:.0f}kg"
-    day0_feed    = df.loc[0, "act_feed_kg"]
-    evening_pred = first_qty - day0_feed
-
     def get_order_note_for_day(day, qty):
         cur = get_brand_for_age(day, active_brs)
         if cur is None:
@@ -316,6 +309,14 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         nxt = get_brand_for_age(age_to + 1, active_brs)
         nxt_name = nxt["brand_name"] if nxt else "仕上"
         return f"{cur['brand_name']} {pre_qty:,.0f}kg ＋ {nxt_name} {fin_qty:,.0f}kg"
+
+    # 0日齢: flock_houses.initial_feed_delivery_qtyを初回投入量として使用
+    delivery_kg[0] = first_qty
+    pred_tank[0]   = first_qty
+    real_tank[0]   = first_qty
+    event_notes[0] = get_order_note_for_day(0, first_qty) if first_qty > 0 else ""
+    day0_feed    = df.loc[0, "act_feed_kg"]
+    evening_pred = first_qty - day0_feed
 
     for d in range(1, len(df)):
         daily_feed   = df.loc[d, "act_feed_kg"]
@@ -753,11 +754,10 @@ try:
         st.write(f"**配送単位**: {fc_std_qty:,.0f} kg / **最低残量アラート**: {fc_min_alert:,.0f} kg")
         st.write(f"**補正係数**: {float(sel_fh.get('feed_correction_factor') or 1.0):.3f}")
         st.write("**adj_dict（実測残量・確定発注）**:", adj_dict)
-        # 銘柄マスタ確認
-        active_brs_dbg = [b for b in feed_brands if b.get("is_active") not in (None, False, 0, "false", "0", "")]
-        st.write(f"**アクティブ銘柄数**: {len(active_brs_dbg)}")
-        for b in active_brs_dbg:
-            st.write(f"  {b.get('brand_name')} age_from={b.get('age_from_days')} age_to={b.get('age_to_days')} is_active={b.get('is_active')}")
+        # 銘柄マスタ確認（全銘柄のis_active値を表示）
+        st.write(f"**全銘柄数**: {len(feed_brands)}")
+        for b in feed_brands:
+            st.write(f"  {b.get('brand_name')} is_active={repr(b.get('is_active'))} type={type(b.get('is_active')).__name__} age_from={b.get('age_from_days')} age_to={b.get('age_to_days')}")
         # 区間ごとの補正率計算を表示
         for ck_d_str in sorted(adj_dict.keys(), key=lambda x: int(x)):
             ck_d = int(ck_d_str)
