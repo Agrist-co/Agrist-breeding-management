@@ -227,9 +227,10 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             s_tank = combined_tank[s]["actual_tank"]
             e_tank = combined_tank[e]["actual_tank"]
 
-            # 区間内の納品量: daily_records + adj_delivery_map
+            # 区間内の途中納品量（s+1〜e-1のみ、e日の納品は含めない）
+            # e日の納品は実測残量計測後の投入なので次区間の起点に含まれる
             delivered_between = 0.0
-            for dd in range(s + 1, e + 1):
+            for dd in range(s + 1, e):
                 if dd in combined_tank:
                     delivered_between += combined_tank[dd].get("delivered", 0)
                 elif dd in rec_by_day:
