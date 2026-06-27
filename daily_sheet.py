@@ -109,9 +109,21 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     chick_in     = fh["chick_in_count"] or 0
     spare        = fh["spare_count"]    or 0
     total_birds  = chick_in + spare
-    first_qty    = float(fh.get("initial_feed_delivery_qty") or 0)
     active_brs   = [b for b in feed_brands if b.get("is_active")]
     weighted_corr = float(fh.get("feed_correction_factor") or 1.0)
+
+    # 初回投入量: fh設定値 → 0日齢daily_records納品量 → adj_dict[0] の順で取得
+    first_qty = float(fh.get("initial_feed_delivery_qty") or 0)
+    if first_qty == 0:
+        chick_date_tmp = date.fromisoformat(fh["chick_in_date"])
+        day0_rec = next(
+            (r for r in recs
+             if (date.fromisoformat(r["record_date"]) - chick_date_tmp).days == 0),
+            None)
+        if day0_rec and day0_rec.get("feed_delivery_qty"):
+            first_qty = float(day0_rec["feed_delivery_qty"])
+    if first_qty == 0 and adj_dict and 0 in adj_dict and (adj_dict[0] or {}).get("delivered"):
+        first_qty = float(adj_dict[0]["delivered"])
 
     # 前期/中期/仕上の銘柄ステージ（発注内容の表示用のみに使用）
     brand_stages = sorted(active_brs, key=lambda b: b.get("age_from_days") or 0)
@@ -221,9 +233,10 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     cum_feed_kg     = 0.0
     cum_delivery_kg = first_qty
 
-    pred_tank[0] = first_qty
-    real_tank[0] = first_qty
-    event_notes[0] = f"初回: {first_qty:.0f}kg"
+    pred_tank[0]   = first_qty
+    real_tank[0]   = first_qty
+    delivery_kg[0] = first_qty
+    event_notes[0] = f"初回投入: {first_qty:.0f}kg"
     cum_feed_kg  += df.loc[0, "act_feed_kg"]
     evening_pred  = first_qty - df.loc[0, "act_feed_kg"]
 
@@ -320,7 +333,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     df["event_notes"]     = event_notes
     df["act_feed_kg"]     = actual_feed
     df["cum_feed_kg"]     = df["act_feed_kg"].cumsum()
-    df["cum_delivery_kg"] = df["delivery_kg"].cumsum() + first_qty
+    df["cum_delivery_kg"] = df["delivery_kg"].cumsum()
     return df
 ross_dict   = {(r["sex"], r["day"]): r for r in ross308}
 
