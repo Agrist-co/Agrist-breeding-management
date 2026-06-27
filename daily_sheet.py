@@ -308,26 +308,22 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         else:
             oq = 0.0
             if pred_tank[d] <= min_alert:
-                # 出荷日まで残り何kg必要か（今日以降の標準採食量合計）
+                # 出荷日までの残り採食量合計
                 future_need = df.loc[d:, "std_feed_kg"].sum()
-                # 現在のタンク残量
-                cur_tank = pred_tank[d]
-                # 不足分
-                shortage = future_need - cur_tank
-                if shortage <= 0:
-                    pass
-                elif shortage <= std_qty:
-                    # 最終発注（端数）
-                    oq = round(shortage / 100) * 100
+                cur_tank    = pred_tank[d]
+                # 今回の発注後に出荷日まで持つか判定
+                # 持たない → 配送単位で発注
+                # 持つ → 端数発注（最終）
+                if future_need - cur_tank <= 0:
+                    pass  # 発注不要
+                elif future_need - (cur_tank + std_qty) <= 0:
+                    # 1配送単位で出荷日まで足りる → 端数のみ
+                    oq = round((future_need - cur_tank) / 100) * 100
+                    oq = max(oq, 100)
                     event_notes[d] = f"最終: {get_order_note_for_day(d, oq)}"
                 else:
-                    # 配送単位で発注、端数があれば追加
-                    n_full = int(shortage // std_qty)
-                    remainder = shortage - n_full * std_qty
-                    oq = n_full * std_qty
-                    if remainder > 100:
-                        oq += round(remainder / 100) * 100
-                    oq = max(oq, std_qty)  # 最低1配送単位
+                    # 配送単位で発注
+                    oq = std_qty
                     event_notes[d] = get_order_note_for_day(d, oq)
                 delivery_kg[d] = oq
             evening_pred = pred_tank[d] + delivery_kg[d] - daily_feed
