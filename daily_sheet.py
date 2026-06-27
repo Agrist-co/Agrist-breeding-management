@@ -995,80 +995,35 @@ try:
             preview_text = "\n".join(lines)
             st.text_area("発注書プレビュー", value=preview_text, height=200, key="fc_preview")
 
-            # 登録・送信ボタン
-            bc1, bc2 = st.columns([1, 3])
-            with bc1:
-                if st.button("💾 発注登録", type="primary", key="fc_order_save"):
-                    try:
-                        for _, r in sel_orders.iterrows():
-                            brand_id = next(
-                                (b["feed_brand_id"] for b in feed_brands
-                                 if b["brand_name"] == r["使用銘柄"]), None)
-                            res_ord = supabase.table("feed_orders").insert({
-                                "farm_id":         farm_id_fc,
-                                "order_date":      str(date.today()),
-                                "delivery_date":   str(r["納品予定日_dt"].date()),
-                                "lead_time_days":  0,
-                                "total_order_qty": float(r["発注量kg"]),
-                                "status":          "発注済",
-                            }).execute()
-                            order_id = res_ord.data[0]["order_id"]
-                            supabase.table("feed_order_details").insert({
-                                "order_id":        order_id,
-                                "flock_house_id":  sel_fh_id,
-                                "feed_brand_id":   brand_id,
-                                "order_qty":       float(r["発注量kg"]),
-                                "tank_remaining":  float(r["タンク残量kg"]),
-                                "stock_days":      None,
-                            }).execute()
-                        st.session_state["fc_msg"] = f"✅ {len(sel_orders)}件の発注を登録しました"
-                        st.session_state["fc_preview"] = preview_text
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"登録エラー: {e}")
+            # 予定配送登録ボタン
+            if st.button("💾 予定配送を登録・更新", type="primary", key="fc_order_save"):
+                try:
+                    # 既存の予定配送を削除（この鶏舎の未発注分）
+                    supabase.table("feed_order_details")                         .delete()                         .eq("flock_house_id", sel_fh_id)                         .is_("order_id", "null")                         .execute()
 
-            with bc2:
-                # 登録後のメール送信
-                if "fc_msg" in st.session_state:
-                    st.success(st.session_state.pop("fc_msg"))
-                    email_settings = fetch("email_settings", "setting_id")
-                    if email_settings:
-                        setting_opts = {es["setting_name"]: es for es in email_settings}
-                        sel_es = st.selectbox("送信先",
-                            list(setting_opts.keys()), key="fc_email_sel")
-                        es = setting_opts[sel_es]
-                        to_addr = st.text_input("宛先", value=es["to_address"] or "", key="fc_to")
-                        subject = st.text_input("件名",
-                            value=f"【飼料発注】{farm_nm_fc} {date.today()}", key="fc_subj")
-                        body = st.text_area("本文",
-                            value=st.session_state.get("fc_preview", ""),
-                            height=150, key="fc_body")
-                        if st.button("📧 メール送信", key="fc_send", type="primary"):
-                            try:
-                                import smtplib
-                                from email.mime.text import MIMEText
-                                from email.mime.multipart import MIMEMultipart
-                                smtp_host = st.secrets.get("smtp", {}).get("host", "")
-                                smtp_port = int(st.secrets.get("smtp", {}).get("port", 587))
-                                smtp_user = st.secrets.get("smtp", {}).get("user", "")
-                                smtp_pass = st.secrets.get("smtp", {}).get("password", "")
-                                if not smtp_host:
-                                    st.error("SMTP設定がありません")
-                                else:
-                                    msg = MIMEMultipart()
-                                    msg["From"]    = smtp_user
-                                    msg["To"]      = to_addr
-                                    msg["Subject"] = subject
-                                    msg.attach(MIMEText(body, "plain", "utf-8"))
-                                    with smtplib.SMTP(smtp_host, smtp_port) as server:
-                                        server.starttls()
-                                        server.login(smtp_user, smtp_pass)
-                                        server.sendmail(smtp_user, [to_addr], msg.as_string())
-                                    st.success(f"✅ 送信完了 → {to_addr}")
-                            except Exception as e:
-                                st.error(f"送信エラー: {e}")
-                    else:
-                        st.warning("メール設定がありません")
+                    # 全予定配送を登録（order_id=NULLで予定として保存）
+                    all_orders = order_plan  # 全期間
+                    for _, r in all_orders.iterrows():
+                        dt = r["納品予定日_dt"]
+                        if hasattr(dt, "date"):
+                            dt = dt.date()
+                        supabase.table("feed_order_details").insert({
+                            "order_id":        None,
+                            "flock_house_id":  sel_fh_id,
+                            "feed_brand_id":   None,
+                            "order_qty":       float(r["発注量kg"]),
+                            "tank_remaining":  float(r["タンク残量kg"]),
+                            "delivery_date":   str(dt),
+                            "day_age":         int(r["日齢"]),
+                            "event_notes":     str(r["発注種別"]),
+                            "pred_tank":       float(r["タンク残量kg"]),
+                            "status":          "予定",
+                        }).execute()
+
+                    st.success(f"✅ {len(all_orders)}件の予定配送を登録しました")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"登録エラー: {e}")
 
 except Exception as e:
     st.error(f"発注予測エラー: {e}")
