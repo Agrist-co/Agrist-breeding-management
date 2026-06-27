@@ -187,30 +187,51 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     df["date_str"] = [d.strftime("%m/%d") for d in df["date_obj"]]
 
     # 区間補正率
+    # act_dict（Supabase）とadj_tank_map（手入力）を統合してタンク残量確定点を作成
     adj_rates   = np.ones(len(df))
-    actual_feed = df["std_feed_kg"].values.copy()  # 書き込み可能なコピー
-    # actual_tankがある日のみ区間補正率計算の対象
-    sorted_act  = sorted(k for k in act_dict.keys() if act_dict[k].get("actual_tank") is not None)
+    actual_feed = df["std_feed_kg"].values.copy()
+
+    # 統合タンク残量辞書: adj_tank_mapで手入力値がある日はact_dictを上書き
+    combined_tank = {}
+    for d, v in act_dict.items():
+        if v.get("actual_tank") is not None:
+            combined_tank[d] = {
+                "actual_tank": v["actual_tank"],
+                "delivered":   v.get("delivered", 0),
+            }
+    for d, tank_val in adj_tank_map.items():
+        combined_tank[d] = {
+            "actual_tank": tank_val,
+            "delivered":   adj_delivery_map.get(d, 0),
+        }
+
+    sorted_act  = sorted(combined_tank.keys())
     latest_rate = weighted_corr
 
     if len(sorted_act) > 1:
         for i in range(len(sorted_act) - 1):
             s, e = sorted_act[i], sorted_act[i+1]
-            s_tank = act_dict[s]["actual_tank"]
-            e_tank = act_dict[e]["actual_tank"]
-            consumed = s_tank + sum(act_dict[d].get("delivered", 0) for d in range(s+1, e+1) if d in act_dict) - e_tank
-            std_cons = df.loc[s:e-1, "std_feed_kg"].sum()
+            s_tank   = combined_tank[s]["actual_tank"]
+            e_tank   = combined_tank[e]["actual_tank"]
+            delivered_between = sum(
+                combined_tank[d].get("delivered", 0)
+                for d in range(s+1, e+1) if d in combined_tank
+            )
+            consumed = s_tank + delivered_between - e_tank
+            std_cons = df.loc[df["day"].between(s, e-1), "std_feed_kg"].sum()
             rate = consumed / std_cons if std_cons > 0 else 1.0
             latest_rate = rate
             for d in range(s, e):
-                adj_rates[d] = rate
-                actual_feed[d] = df.loc[d, "std_feed_kg"] * rate
+                if d < len(df):
+                    adj_rates[d]   = rate
+                    actual_feed[d] = df.loc[df["day"] == d, "std_feed_kg"].values[0] * rate if d in df["day"].values else actual_feed[d]
 
     last_act  = sorted_act[-1] if sorted_act else 0
     today_day = (date.today() - chick_date).days
-    for d in range(last_act, len(df)):
-        actual_feed[d] = df.loc[d, "std_feed_kg"] * latest_rate
-        adj_rates[d]   = latest_rate
+    for idx, d in enumerate(df["day"]):
+        if d >= last_act:
+            actual_feed[idx] = df.loc[idx, "std_feed_kg"] * latest_rate
+            adj_rates[idx]   = latest_rate
 
     df["adj_rate"]    = adj_rates
     df["act_feed_kg"] = actual_feed
