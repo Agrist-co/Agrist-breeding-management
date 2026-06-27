@@ -175,8 +175,8 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     }
 
     # 全日齢の標準採食量（環境補正＋加重平均補正込み）
-    # 出荷前日18時給餌停止: 出荷前日を0.75掛け、出荷日は採食0
-    days = list(range(0, shipping_age + 1))
+    # 出荷前日18時給餌停止: 出荷前日を0.75掛け、出荷日は行自体を含めない
+    days = list(range(0, shipping_age))  # 出荷日(shipping_age)は含まない
     std_feed = []
     for d in days:
         r   = get_ross308(d)
@@ -184,7 +184,6 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         env = get_env_correction(avg_temp, avg_hum, r.get("weight_g") or 1000)
         kg  = std * env * weighted_corr
         if d == shipping_age - 1: kg *= 0.75  # 出荷前日18時給餌停止
-        if d == shipping_age:     kg  = 0.0   # 出荷日は採食なし
         std_feed.append(kg)
 
     df = pd.DataFrame({"day": days, "std_feed_kg": std_feed})
@@ -521,7 +520,7 @@ edited = st.data_editor(
     use_container_width=True,
     hide_index=True,
     num_rows="fixed",
-    height=600,
+    height=57 * 35 + 38,
     column_config={
         "日令":       st.column_config.NumberColumn("日令",    disabled=True, width=40),
         "月日":       st.column_config.TextColumn(  "月日",    disabled=True, width=55),
@@ -712,7 +711,7 @@ try:
         use_container_width=True,
         hide_index=True,
         num_rows="fixed",
-        height=500,
+    height=56 * 35 + 38,
         column_config={
             "日齢":       st.column_config.NumberColumn("日齢",       disabled=True, width=42),
             "月日":       st.column_config.TextColumn(  "月日",       disabled=True, width=60),
