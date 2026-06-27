@@ -448,7 +448,7 @@ def get_ross308(age):
 # 対象選択
 # ----------------------------------------------------------
 st.title("📋 ブロイラー飼養管理 - 入力・発注予測")
-tab1, tab2, tab3 = st.tabs(["📝 日次入力・発注予測", "🚛 一括発注", "📧 メール設定"])
+tab1, tab2 = st.tabs(["📝 日次入力・発注予測", "🚛 発注"])
 
 
 c1, c2, c3, c4 = st.columns(4)
@@ -746,7 +746,8 @@ with tab1:
     # ----------------------------------------------------------
     # ----------------------------------------------------------
 
-with tab2:
+    # ---- 発注予測シミュレーション ----
+    st.markdown("---")
     st.markdown("### 🚛 発注予測")
     st.markdown("#### ⚙️ 発注パラメータ")
     fp1, fp2 = st.columns(2)
@@ -1030,7 +1031,7 @@ with tab2:
 # ==========================================================
 # タブ2: 一括発注（農場単位）
 # ==========================================================
-with tab3:
+with tab2:
     st.markdown("### 🚛 一括発注")
 
     # ---- 農場・期間選択 ----
@@ -1136,50 +1137,66 @@ with tab3:
 
                 with obc2:
                     if "o_order_id" in st.session_state:
-                        st.markdown("#### 📧 メール送信")
+                        st.markdown("#### 📤 送信方法を選択")
+                        send_method = st.radio("送信方法",
+                            ["📧 メール", "📠 FAX（印刷用テキスト）"],
+                            horizontal=True, key="o_send_method")
+
                         o_email_settings = supabase.table("email_settings").select("*").execute().data
                         o_farm_settings  = [es for es in o_email_settings
                                             if es.get("farm_id") == o_farm_id or es.get("farm_id") is None]
-                        if not o_farm_settings:
-                            st.warning("メール設定がありません。「📧 メール設定」タブで登録してください。")
-                        else:
-                            o_setting_opts = {es["setting_name"]: es for es in o_farm_settings}
-                            o_sel_setting  = st.selectbox("送信先設定",
-                                list(o_setting_opts.keys()), key="o_email_sel")
-                            o_es      = o_setting_opts[o_sel_setting]
-                            o_to_addr = st.text_input("宛先", value=o_es.get("to_address",""), key="o_to")
-                            o_cc_addr = st.text_input("CC",  value=o_es.get("cc_address",""),  key="o_cc")
-                            o_subject = st.text_input("件名",
-                                value=f"【飼料発注】{o_farm} {o_order_date}", key="o_subject")
-                            o_body_send = st.text_area("本文",
-                                value=st.session_state.get("o_preview_text",""),
-                                height=200, key="o_body")
-                            if st.button("📧 メール送信", key="o_send", type="primary"):
-                                try:
-                                    import smtplib
-                                    from email.mime.text import MIMEText
-                                    from email.mime.multipart import MIMEMultipart
-                                    smtp_host = st.secrets.get("smtp", {}).get("host", "")
-                                    smtp_port = int(st.secrets.get("smtp", {}).get("port", 587))
-                                    smtp_user = st.secrets.get("smtp", {}).get("user", "")
-                                    smtp_pass = st.secrets.get("smtp", {}).get("password", "")
-                                    if not smtp_host:
-                                        st.error("SMTP設定がありません")
-                                    else:
-                                        msg = MIMEMultipart()
-                                        msg["From"]    = smtp_user
-                                        msg["To"]      = o_to_addr
-                                        if o_cc_addr:
-                                            msg["Cc"] = o_cc_addr
-                                        msg["Subject"] = o_subject
-                                        msg.attach(MIMEText(o_body_send, "plain", "utf-8"))
-                                        recipients = [a.strip() for a in o_to_addr.split(",")]
-                                        if o_cc_addr:
-                                            recipients += [a.strip() for a in o_cc_addr.split(",")]
-                                        with smtplib.SMTP(smtp_host, smtp_port) as server:
-                                            server.starttls()
-                                            server.login(smtp_user, smtp_pass)
-                                            server.sendmail(smtp_user, recipients, msg.as_string())
-                                        st.success(f"✅ メールを送信しました → {o_to_addr}")
-                                except Exception as e:
-                                    st.error(f"送信エラー: {e}")
+
+                        o_subject = st.text_input("件名",
+                            value=f"【飼料発注】{o_farm} {o_order_date}", key="o_subject")
+                        o_body_send = st.text_area("発注書本文",
+                            value=st.session_state.get("o_preview_text",""),
+                            height=200, key="o_body")
+
+                        if send_method == "📧 メール":
+                            if not o_farm_settings:
+                                st.warning("メール設定がありません")
+                            else:
+                                o_setting_opts = {es["setting_name"]: es for es in o_farm_settings}
+                                o_sel_setting  = st.selectbox("送信先設定",
+                                    list(o_setting_opts.keys()), key="o_email_sel")
+                                o_es      = o_setting_opts[o_sel_setting]
+                                o_to_addr = st.text_input("宛先", value=o_es.get("to_address",""), key="o_to")
+                                o_cc_addr = st.text_input("CC",  value=o_es.get("cc_address",""),  key="o_cc")
+                                if st.button("📧 メール送信", key="o_send_email", type="primary"):
+                                    try:
+                                        import smtplib
+                                        from email.mime.text import MIMEText
+                                        from email.mime.multipart import MIMEMultipart
+                                        smtp_host = st.secrets.get("smtp", {}).get("host", "")
+                                        smtp_port = int(st.secrets.get("smtp", {}).get("port", 587))
+                                        smtp_user = st.secrets.get("smtp", {}).get("user", "")
+                                        smtp_pass = st.secrets.get("smtp", {}).get("password", "")
+                                        if not smtp_host:
+                                            st.error("SMTP設定がありません")
+                                        else:
+                                            msg = MIMEMultipart()
+                                            msg["From"]    = smtp_user
+                                            msg["To"]      = o_to_addr
+                                            if o_cc_addr:
+                                                msg["Cc"] = o_cc_addr
+                                            msg["Subject"] = o_subject
+                                            msg.attach(MIMEText(o_body_send, "plain", "utf-8"))
+                                            recipients = [a.strip() for a in o_to_addr.split(",")]
+                                            if o_cc_addr:
+                                                recipients += [a.strip() for a in o_cc_addr.split(",")]
+                                            with smtplib.SMTP(smtp_host, smtp_port) as server:
+                                                server.starttls()
+                                                server.login(smtp_user, smtp_pass)
+                                                server.sendmail(smtp_user, recipients, msg.as_string())
+                                            st.success(f"✅ メールを送信しました → {o_to_addr}")
+                                    except Exception as e:
+                                        st.error(f"送信エラー: {e}")
+
+                        else:  # FAX（印刷用）
+                            st.markdown("##### 📠 FAX送信用テキスト")
+                            fax_no = st.text_input("FAX番号", key="o_fax_no",
+                                placeholder="例: 0837-XX-XXXX")
+                            st.info(f"FAX番号: {fax_no or '未入力'}\n上記の発注書本文を印刷またはFAXソフトに貼り付けて送信してください。")
+                            if st.button("📋 クリップボードにコピー（手動）", key="o_fax_copy"):
+                                st.code(o_body_send, language=None)
+                                st.caption("↑ 上のテキストを選択してコピーしてください")
