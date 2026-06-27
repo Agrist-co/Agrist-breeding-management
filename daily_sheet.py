@@ -161,7 +161,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     adj_tank_map = {
         int(day): float(v["actual_tank"])
         for day, v in (adj_dict or {}).items()
-        if v.get("actual_tank") is not None
+        if v.get("actual_tank") is not None and int(day) > 0  # 0日齢はfirst_qty固定
     }
     # 調整発注辞書（未来日の発注量を上書き）
     adj_delivery_map = {
@@ -206,8 +206,10 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 "actual_tank": v["actual_tank"],
                 "delivered":   v.get("delivered", 0),
             }
-    # 手入力実測残量（Supabaseを上書き）
+    # 手入力実測残量（Supabaseを上書き、0日齢は除外）
     for d, tank_val in adj_tank_map.items():
+        if d == 0:
+            continue  # 0日齢はfirst_qtyで固定
         combined_tank[d] = {
             "actual_tank": tank_val,
             "delivered":   adj_delivery_map.get(d, 0),
@@ -805,9 +807,9 @@ try:
         day   = int(row["日齢"])
         entry = {}
 
-        # 実測残量: セルの現在値を取得（Noneでなければ保存）
+        # 実測残量: 0日齢以外を保存（0日齢はfirst_qty固定）
         new_real = row.get("実測残量kg")
-        if new_real is not None and pd.notna(new_real):
+        if new_real is not None and pd.notna(new_real) and day > 0:
             entry["actual_tank"] = float(new_real)
 
         # 調整発注量: 入力があれば保存、空欄=自動予測に戻す
