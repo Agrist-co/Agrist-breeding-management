@@ -231,23 +231,12 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     delivery_kg = np.zeros(len(df))
     event_notes = [""] * len(df)
 
-    # 0日齢: 初回投入量でタンク満載、delivery_kg[0]は表示用のみ
-    delivery_kg[0] = first_qty
+    # 0日齢: 初回投入量でタンク満載（予定発注列には出さない）
     pred_tank[0]   = first_qty
     real_tank[0]   = first_qty
     event_notes[0] = f"初回投入: {first_qty:.0f}kg"
-    # タンク残量ベースで管理（cumは使わない）
-    # evening_pred = その日の夜時点のタンク残量（翌日朝のpred_tank）
     day0_feed    = df.loc[0, "act_feed_kg"]
     evening_pred = first_qty - day0_feed
-
-    # 0日齢の日次記録に納品量があれば（初回投入以外の追加納品）
-    r0 = rec_by_day.get(0, {})
-    if r0 and r0.get("feed_delivery_qty"):
-        dt0 = float(r0["feed_delivery_qty"])
-        # first_qtyとは別に追加納品がある場合のみ加算
-        if abs(dt0 - first_qty) > 1:
-            evening_pred += dt0
 
     def get_order_note_for_day(day, qty):
         cur = get_brand_for_age(day, active_brs)
@@ -290,12 +279,11 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 ri    = float(r["feed_duration_min"]) * house_coef * ratio
                 actual_feed[d] = ri
                 evening_pred   = pred_tank[d] + dt - ri
-                event_notes[d] = f"実績採食: {ri:.0f}kg 納品{dt:.0f}kg"
             else:
                 evening_pred   = pred_tank[d] + dt - daily_feed
-                event_notes[d] = f"納品{dt:.0f}kg" if dt > 0 else ""
             if dt > 0:
                 delivery_kg[d] = dt
+                event_notes[d] = f"納品: {dt:.0f}kg"
 
         # ── 優先3: 調整発注（手動上書き） ──
         elif d in adj_delivery_map:
