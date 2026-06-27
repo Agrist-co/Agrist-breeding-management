@@ -79,7 +79,8 @@ worker_opts = {w["worker_name"]: w["worker_id"]       for w in workers}
 ross_dict   = {(r["sex"], r["day"]): r                for r in ross308}
 
 def get_ross308(age):
-    return ross_dict.get(("as_hatched", max(0, min(int(age), 56))), {})
+    max_day = max(k[1] for k in ross_dict.keys()) if ross_dict else 56
+    return ross_dict.get(("as_hatched", max(0, min(int(age), max_day))), {})
 
 def get_brand_for_age(age_days, active_brands):
     matched = [b for b in active_brands
@@ -105,7 +106,7 @@ def get_env_correction(house_temp_avg, humidity, body_weight_g):
 def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_dict=None):
     """出荷日齢までのタンク残量・発注予測を実行"""
     chick_date   = date.fromisoformat(fh["chick_in_date"])
-    shipping_age = min(fh.get("planned_shipment_age_days") or 56, 56)
+    shipping_age = fh.get("planned_shipment_age_days") or 56
     chick_in     = fh["chick_in_count"] or 0
     spare        = fh["spare_count"]    or 0
     total_birds  = chick_in + spare
@@ -313,19 +314,19 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
 
         else:
             r = rec_by_day.get(d, {})
+            dt = float(r.get("feed_delivery_qty") or 0) if r else 0
+            cum_delivery_kg += dt
             if r and house_coef > 0 and r.get("feed_duration_min"):
                 bid   = r.get("feed_brand_id")
                 bobj  = next((b for b in feed_brands if b["feed_brand_id"] == bid), {})                         if bid else get_brand_for_age(d, active_brs) or {}
                 ratio = float(bobj.get("transfer_coef_ratio") or 1.0)
                 ri    = float(r["feed_duration_min"]) * house_coef * ratio
-                dt    = float(r.get("feed_delivery_qty") or 0)
                 actual_feed[d]  = ri
                 cum_feed_kg    += ri
-                cum_delivery_kg += dt
                 evening_pred    = pred_tank[d] + dt - ri
             else:
                 cum_feed_kg += daily_feed
-                evening_pred = pred_tank[d] - daily_feed
+                evening_pred = pred_tank[d] + dt - daily_feed
 
     df["pred_tank"]       = pred_tank
     df["real_tank"]       = real_tank
@@ -338,7 +339,8 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
 ross_dict   = {(r["sex"], r["day"]): r for r in ross308}
 
 def get_ross308(age):
-    return ross_dict.get(("as_hatched", max(0, min(int(age), 56))), {})
+    max_day = max(k[1] for k in ross_dict.keys()) if ross_dict else 56
+    return ross_dict.get(("as_hatched", max(0, min(int(age), max_day))), {})
 
 # ----------------------------------------------------------
 # 対象選択
