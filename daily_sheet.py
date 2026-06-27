@@ -157,15 +157,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 "delivered":   float(od["order_qty"] or 0),
             }
 
-    # adj_dict（ユーザー調整値）をact_dictにマージ
-    # actual_tankがある場合のみact_dictに追加（区間補正率計算に使用）
-    # deliveredはadj_delivery_mapで別管理（act_dictには入れない）
-    if adj_dict:
-        for day, adj in adj_dict.items():
-            if adj.get("actual_tank") is not None:
-                if day not in act_dict:
-                    act_dict[day] = {}
-                act_dict[day]["actual_tank"] = adj["actual_tank"]
+    # adj_dictはdeliveredのみ管理（actual_tankはSupabaseのfeed_order_detailsから取得）
     # 調整発注辞書（未来日の発注量を上書き）
     adj_delivery_map = {
         int(day): float(v["delivered"])
@@ -731,8 +723,7 @@ try:
             "補正率":     st.column_config.NumberColumn("補正率",     disabled=True, width=55),
             "予測残量kg": st.column_config.NumberColumn("予測残量kg", disabled=True, width=78),
             "実測残量kg": st.column_config.NumberColumn("実測残量kg",
-                min_value=0.0, step=10.0, width=85,
-                help="納品直前の実測残量を入力→以降の計算に反映"),
+                disabled=True, width=85),
             "予定発注kg": st.column_config.NumberColumn("予定発注kg", disabled=True, width=78,
                 help="自動計算による予定発注量"),
             "調整発注kg": st.column_config.NumberColumn("調整発注kg",
@@ -750,14 +741,6 @@ try:
         day     = int(row["日齢"])
         changed = False
         entry   = {}
-        # 実測残量の変更を検知
-        orig_real = edit_df.at[i, "実測残量kg"]
-        new_real  = row.get("実測残量kg")
-        if new_real is not None and pd.notna(new_real) and new_real != orig_real:
-            entry["actual_tank"] = float(new_real)
-            changed = True
-        elif orig_real is not None and pd.notna(orig_real):
-            entry["actual_tank"] = float(orig_real)
         # 調整発注量（入力があれば必ず保存、空欄=予定発注に戻す）
         orig_del = edit_df.at[i, "調整発注kg"]
         new_del  = row.get("調整発注kg")
