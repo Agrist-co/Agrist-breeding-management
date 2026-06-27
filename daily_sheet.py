@@ -157,7 +157,12 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 "delivered":   float(od["order_qty"] or 0),
             }
 
-    # adj_dictはdeliveredのみ管理（actual_tankはSupabaseのfeed_order_detailsから取得）
+    # adj_dictのactual_tank: ユーザー入力による実測残量補正（Supabaseとは独立）
+    adj_tank_map = {
+        int(day): float(v["actual_tank"])
+        for day, v in (adj_dict or {}).items()
+        if v.get("actual_tank") is not None
+    }
     # 調整発注辞書（未来日の発注量を上書き）
     adj_delivery_map = {
         int(day): float(v["delivered"])
@@ -250,11 +255,17 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         return f"{cur['brand_name']} {pre_qty:,.0f}kg ＋ {nxt_name} {fin_qty:,.0f}kg"
 
     for d in range(1, len(df)):
-        pred_tank[d] = evening_pred
         daily_feed   = df.loc[d, "act_feed_kg"]
         r            = rec_by_day.get(d, {})
 
-        # ── 優先1: 実測タンク残量あり（納品直前の確定値） ──
+        # ── 実測残量補正: adj_tank_mapに値があればevening_predを上書き ──
+        # （確定発注・予測発注とは独立して pred_tank を補正する）
+        if d in adj_tank_map:
+            real_tank[d] = adj_tank_map[d]
+            evening_pred = adj_tank_map[d]  # この日の朝タンク残量を実測値で補正
+        pred_tank[d] = evening_pred
+
+        # ── 優先1: Supabase実測タンク残量あり（feed_order_details確定値） ──
         if d in act_dict and act_dict[d].get("actual_tank") is not None:
             real_tank[d]   = act_dict[d]["actual_tank"]
             pred_tank[d]   = real_tank[d]
@@ -698,8 +709,12 @@ try:
         "採食累計kg": df_fc["cum_feed_kg"].round(0),
         "補正率":     df_fc["adj_rate"].round(3),
         "予測残量kg": df_fc["pred_tank"].round(0),
-        "実測残量kg": df_fc["real_tank"].apply(
-            lambda x: float(x) if not (isinstance(x, float) and np.isnan(x)) else None),
+        "実測残量kg": df_fc.apply(
+            lambda row: (
+                float(adj_dict[int(row["day"])]["actual_tank"])
+                if int(row["day"]) in adj_dict and adj_dict[int(row["day"])].get("actual_tank") is not None
+                else (float(row["real_tank"]) if not (isinstance(row["real_tank"], float) and np.isnan(row["real_tank"])) else None)
+            ), axis=1),
         "予定発注kg": df_fc["delivery_kg"].apply(
             lambda x: float(x) if x > 0 else None),   # 自動計算・表示専用
         "調整発注kg": df_fc["day"].apply(
@@ -723,7 +738,8 @@ try:
             "補正率":     st.column_config.NumberColumn("補正率",     disabled=True, width=55),
             "予測残量kg": st.column_config.NumberColumn("予測残量kg", disabled=True, width=78),
             "実測残量kg": st.column_config.NumberColumn("実測残量kg",
-                disabled=True, width=85),
+                min_value=0.0, step=10.0, width=85,
+                help="実測タンク残量を入力→予測残量の補正に反映"),
             "予定発注kg": st.column_config.NumberColumn("予定発注kg", disabled=True, width=78,
                 help="自動計算による予定発注量"),
             "調整発注kg": st.column_config.NumberColumn("調整発注kg",
@@ -741,6 +757,15 @@ try:
         day     = int(row["日齢"])
         changed = False
         entry   = {}
+        # 実測残量の変更を検知（adj_dictに保存→予測残量補正に使用）
+        orig_real = edit_df.at[i, "実測残量kg"]
+        new_real  = row.get("実測残量kg")
+        if new_real is not None and pd.notna(new_real) and float(new_real) >= 0:
+            entry["actual_tank"] = float(new_real)
+            if new_real != orig_real:
+                changed = True
+        elif orig_real is not None and pd.notna(orig_real):
+            entry["actual_tank"] = float(orig_real)
         # 調整発注量（入力があれば必ず保存、空欄=予定発注に戻す）
         orig_del = edit_df.at[i, "調整発注kg"]
         new_del  = row.get("調整発注kg")
