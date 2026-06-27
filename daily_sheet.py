@@ -334,7 +334,10 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             _pre_delivered[0] += pre_qty
             nxt = get_brand_for_age(age_to + 1, active_brs)
             nxt_name = nxt["brand_name"] if nxt else "仕上"
-            if nxt_qty <= 0:
+            if nxt_qty <= 0 or pre_qty <= 0:
+                # 片方が0の場合は単独表示
+                if pre_qty <= 0:
+                    return f"{nxt_name} {qty:,.0f}kg"
                 return f"{cur['brand_name']} {qty:,.0f}kg"
             return f"{cur['brand_name']} {pre_qty:,.0f}kg ＋ {nxt_name} {nxt_qty:,.0f}kg"
 
