@@ -110,7 +110,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     chick_in     = fh["chick_in_count"] or 0
     spare        = fh["spare_count"]    or 0
     total_birds  = chick_in + spare
-    active_brs   = [b for b in feed_brands if b.get("is_active")]
+    active_brs   = [b for b in feed_brands if b.get("is_active") not in (None, False, 0, "false", "0", "")]
     weighted_corr = float(fh.get("feed_correction_factor") or 1.0)
 
     # 初回投入量: fh設定値 → 0日齢daily_records納品量 → adj_dict[0] の順で取得
@@ -754,7 +754,7 @@ try:
         st.write(f"**補正係数**: {float(sel_fh.get('feed_correction_factor') or 1.0):.3f}")
         st.write("**adj_dict（実測残量・確定発注）**:", adj_dict)
         # 銘柄マスタ確認
-        active_brs_dbg = [b for b in feed_brands if b.get("is_active")]
+        active_brs_dbg = [b for b in feed_brands if b.get("is_active") not in (None, False, 0, "false", "0", "")]
         st.write(f"**アクティブ銘柄数**: {len(active_brs_dbg)}")
         for b in active_brs_dbg:
             st.write(f"  {b.get('brand_name')} age_from={b.get('age_from_days')} age_to={b.get('age_to_days')} is_active={b.get('is_active')}")
@@ -867,7 +867,7 @@ try:
 
     # ---- Step7: 予定配送一覧（出荷日齢まで全発注計画） ----
     st.markdown("#### 📋 予定配送一覧（出荷日齢まで）")
-    active_brs  = [b for b in feed_brands if b.get("is_active")]
+    active_brs  = [b for b in feed_brands if b.get("is_active") not in (None, False, 0, "false", "0", "")]
     order_plan  = df_fc[df_fc["delivery_kg"] > 0].copy()
 
     if order_plan.empty:
