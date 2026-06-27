@@ -749,15 +749,9 @@ with tab1:
     # ---- 発注予測シミュレーション ----
     st.markdown("---")
     st.markdown("### 🚛 発注予測")
-    st.markdown("#### ⚙️ 発注パラメータ")
-    fp1, fp2 = st.columns(2)
-    with fp1:
-        fc_std_qty   = st.number_input("配送単位（kg）",
-            min_value=0.0, value=4000.0, step=500.0, key="fc_std_qty")
-    with fp2:
-        fc_min_alert = st.number_input("最低残量アラート（kg）",
-            min_value=0.0, value=200.0, step=50.0, key="fc_min_alert")
-    fc_lead_time = 0  # リードタイムなし（出荷日齢まで全予測）
+    fc_std_qty   = 4000.0   # 配送単位（kg）
+    fc_min_alert = 200.0    # 最低残量アラート（kg）
+    fc_lead_time = 0
 
     st.caption("💡 表の「実測残量kg」「調整発注kg」を直接入力すると自動再計算されます")
 
@@ -898,130 +892,48 @@ with tab1:
                 st.session_state[adj_key] = {}
                 st.rerun()
 
-        # ---- Step7: 予定配送一覧（出荷日齢まで全発注計画） ----
-        st.markdown("#### 📋 予定配送一覧（出荷日齢まで）")
+        # ---- Step7: order_plan構築（発注タブで使用） ----
         active_brs  = [b for b in feed_brands if b.get("is_active") not in (None, False, 0, "false", "0", "")]
         order_plan  = df_fc[df_fc["delivery_kg"] > 0].copy()
-
-        if order_plan.empty:
-            st.info("出荷日齢まで発注不要です")
-        else:
-            order_plan = order_plan.copy()
+        if not order_plan.empty:
             order_plan["納品予定日_dt"] = order_plan["date_obj"]
             order_plan["納品予定日"]    = order_plan["date_str"]
             order_plan["日齢"]          = order_plan["day"].astype(int)
             order_plan["発注量kg"]      = order_plan["delivery_kg"].round(0)
-            order_plan["発注種別"]      = order_plan["event_notes"]  # 銘柄名＋数量
+            order_plan["発注種別"]      = order_plan["event_notes"]
             order_plan["タンク残量kg"]  = order_plan["pred_tank"].round(0)
             order_plan["採食累計kg"]    = order_plan["cum_feed_kg"].round(0)
-            order_plan["配送累計kg"]    = order_plan["cum_delivery_kg"].round(0)
-            order_plan["使用銘柄"]      = order_plan["日齢"].apply(
-                lambda d: (get_brand_for_age(d, active_brs) or {}).get("brand_name", "-"))
 
-            # 合計行を追加
-            total_row = {
-                "納品予定日": "【合計】",
-                "日齢":       "",
-                "発注量kg":   order_plan["発注量kg"].sum(),
-                "発注種別":   "",
-                "タンク残量kg": "",
-                "採食累計kg": "",
-                "配送累計kg": "",
-                "使用銘柄":   "",
-            }
-            disp_order = order_plan[[
-                "納品予定日","日齢","発注量kg","発注種別","タンク残量kg","採食累計kg"
-            ]].copy()
-            st.dataframe(disp_order, use_container_width=True, hide_index=True)
-            total_qty = order_plan["発注量kg"].sum()
-            st.caption(f"合計発注量: **{total_qty:,.0f} kg** / {len(order_plan)}回")
+        # ---- Step8: シミュレーション変更時に予定配送を自動保存 ----
+        _save_key     = f"saved_plan_{sel_fh_id}"
+        _current_plan = str(order_plan.to_dict() if not order_plan.empty else {})
+        if st.session_state.get(_save_key) != _current_plan and not order_plan.empty:
+            try:
+                supabase.table("feed_order_details") \
+                    .delete() \
+                    .eq("flock_house_id", sel_fh_id) \
+                    .is_("order_id", "null") \
+                    .execute()
+                for _, r in order_plan.iterrows():
+                    dt = r["納品予定日_dt"]
+                    if hasattr(dt, "date"):
+                        dt = dt.date()
+                    supabase.table("feed_order_details").insert({
+                        "order_id":       None,
+                        "flock_house_id": sel_fh_id,
+                        "feed_brand_id":  None,
+                        "order_qty":      float(r["発注量kg"]),
+                        "tank_remaining": float(r["タンク残量kg"]),
+                        "delivery_date":  str(dt),
+                        "day_age":        int(r["日齢"]),
+                        "event_notes":    str(r["発注種別"]),
+                        "pred_tank":      float(r["タンク残量kg"]),
+                        "status":         "予定",
+                    }).execute()
+                st.session_state[_save_key] = _current_plan
+            except Exception as e:
+                st.warning(f"予定配送の自動保存に失敗: {e}")
 
-            # ---- Step8: 発注日範囲を指定して発注 ----
-            st.markdown("#### 📤 発注日範囲指定・発注登録")
-            st.caption("発注したい範囲（納品予定日）を指定して、その期間の発注を一括登録します")
-
-            # date_objはdatetime.date型なのでそのまま使用
-            min_date = order_plan["納品予定日_dt"].min()
-            max_date = order_plan["納品予定日_dt"].max()
-            if hasattr(min_date, "date"): min_date = min_date.date()
-            if hasattr(max_date, "date"): max_date = max_date.date()
-
-            dr1, dr2 = st.columns(2)
-            with dr1:
-                range_from = st.date_input("発注範囲（開始）",
-                    value=min_date, min_value=min_date, max_value=max_date,
-                    key="fc_range_from")
-            with dr2:
-                range_to = st.date_input("発注範囲（終了）",
-                    value=min(min_date + timedelta(days=14), max_date),
-                    min_value=min_date, max_value=max_date,
-                    key="fc_range_to")
-
-            # 対象発注を絞り込み
-            _dt_as_date = order_plan["納品予定日_dt"].apply(
-                lambda x: x if isinstance(x, date) else x.date())
-            sel_orders = order_plan[
-                (_dt_as_date >= range_from) &
-                (_dt_as_date <= range_to)
-            ]
-
-            if sel_orders.empty:
-                st.info("指定した期間に発注はありません")
-            else:
-                sel_total = sel_orders["発注量kg"].sum()
-                st.markdown(f"**対象: {len(sel_orders)}回　合計: {sel_total:,.0f} kg**")
-                st.dataframe(
-                    sel_orders[["納品予定日","日齢","発注量kg","発注種別"]],
-                    use_container_width=True, hide_index=True)
-
-                # 発注書プレビュー
-                farm_id_fc = next(
-                    (ln["farm_id"] for ln in lot_numbers
-                     if ln["lot_number_id"] == sel_fh["lot_number_id"]), None)
-                farm_nm_fc = farm_map.get(farm_id_fc, "")
-                lines = [
-                    f"【飼料発注】{farm_nm_fc}",
-                    f"発注日: {date.today()}",
-                    "",
-                ]
-                for _, r in sel_orders.iterrows():
-                    lines.append(
-                        f"  納品予定日: {r['納品予定日']}（日齢{r['日齢']}日）"
-                        f"　合計 {r['発注量kg']:,.0f} kg"
-                        f"　内訳: {r['発注種別']}")
-                lines += ["", f"合計: {sel_total:,.0f} kg", "", "よろしくお願いいたします。", farm_nm_fc]
-                preview_text = "\n".join(lines)
-                st.text_area("発注書プレビュー", value=preview_text, height=200, key="fc_preview")
-
-                # 予定配送登録ボタン
-                if st.button("💾 予定配送を登録・更新", type="primary", key="fc_order_save"):
-                    try:
-                        # 既存の予定配送を削除（この鶏舎の未発注分）
-                        supabase.table("feed_order_details")                         .delete()                         .eq("flock_house_id", sel_fh_id)                         .is_("order_id", "null")                         .execute()
-
-                        # 全予定配送を登録（order_id=NULLで予定として保存）
-                        all_orders = order_plan  # 全期間
-                        for _, r in all_orders.iterrows():
-                            dt = r["納品予定日_dt"]
-                            if hasattr(dt, "date"):
-                                dt = dt.date()
-                            supabase.table("feed_order_details").insert({
-                                "order_id":        None,
-                                "flock_house_id":  sel_fh_id,
-                                "feed_brand_id":   None,
-                                "order_qty":       float(r["発注量kg"]),
-                                "tank_remaining":  float(r["タンク残量kg"]),
-                                "delivery_date":   str(dt),
-                                "day_age":         int(r["日齢"]),
-                                "event_notes":     str(r["発注種別"]),
-                                "pred_tank":       float(r["タンク残量kg"]),
-                                "status":          "予定",
-                            }).execute()
-
-                        st.success(f"✅ {len(all_orders)}件の予定配送を登録しました")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"登録エラー: {e}")
 
     except Exception as e:
         st.error(f"発注予測エラー: {e}")
@@ -1032,22 +944,22 @@ with tab1:
 # タブ2: 一括発注（農場単位）
 # ==========================================================
 with tab2:
-    st.markdown("### 🚛 一括発注")
+    st.markdown("### 🚛 発注")
 
-    # ---- 農場・期間選択 ----
-    oc1, oc2, oc3 = st.columns(3)
+    # ---- タブ先頭: 農場・期間・発注日 ----
+    oc1, oc2, oc3, oc4 = st.columns(4)
     with oc1:
         o_farm    = st.selectbox("農場", list(farm_opts.keys()), key="o_farm")
         o_farm_id = farm_opts[o_farm]
     with oc2:
-        o_from = st.date_input("発注範囲（開始）", value=date.today(), key="o_from")
+        o_from = st.date_input("納品範囲（開始）", value=date.today(), key="o_from")
     with oc3:
-        o_to   = st.date_input("発注範囲（終了）",
+        o_to   = st.date_input("納品範囲（終了）",
             value=date.today() + timedelta(days=14), key="o_to")
+    with oc4:
+        o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date")
 
-    o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date")
-
-    # ---- 農場内育成中の鶏舎の予定配送を取得 ----
+    # ---- 農場内育成中の鶏舎を取得・表示 ----
     o_farm_ln_ids = {ln["lot_number_id"] for ln in lot_numbers if ln["farm_id"] == o_farm_id}
     o_farm_fhs    = [fh for fh in flock_houses
                      if fh["lot_number_id"] in o_farm_ln_ids and fh.get("status") == "育成中"]
@@ -1055,22 +967,44 @@ with tab2:
     if not o_farm_fhs:
         st.info("育成中の鶏舎がありません")
     else:
-        o_fh_ids = [fh["flock_house_id"] for fh in o_farm_fhs]
+        # 鶏舎情報を先頭に表示
+        fh_info_rows = []
+        for fh in o_farm_fhs:
+            ln_obj = next((ln for ln in lot_numbers if ln["lot_number_id"] == fh.get("lot_number_id")), {})
+            chick_dt = date.fromisoformat(fh["chick_in_date"]) if fh.get("chick_in_date") else None
+            age_now  = (date.today() - chick_dt).days if chick_dt else "-"
+            fh_info_rows.append({
+                "鶏舎":     house_map.get(fh.get("house_id"), ""),
+                "ロット":   ln_obj.get("lot_number", ""),
+                "入雛日":   str(fh.get("chick_in_date", "")),
+                "現在日齢": age_now,
+                "出荷日齢": fh.get("planned_shipment_age_days", ""),
+                "残存羽数": fh.get("current_count", ""),
+            })
+        import pandas as pd
+        st.dataframe(pd.DataFrame(fh_info_rows),
+            use_container_width=True, hide_index=True)
 
+        # ---- 予定配送を期間でフィルタして取得 ----
+        o_fh_ids  = [fh["flock_house_id"] for fh in o_farm_fhs]
         o_details = []
         for fh_id in o_fh_ids:
-            rows = supabase.table("feed_order_details")                 .select("*")                 .eq("flock_house_id", fh_id)                 .is_("order_id", "null")                 .eq("status", "予定")                 .order("delivery_date").execute().data
+            rows = supabase.table("feed_order_details") \
+                .select("*") \
+                .eq("flock_house_id", fh_id) \
+                .is_("order_id", "null") \
+                .eq("status", "予定") \
+                .order("delivery_date").execute().data
             for row in rows:
-                fh_obj  = next((f for f in o_farm_fhs if f["flock_house_id"] == fh_id), {})
-                ln_obj  = next((ln for ln in lot_numbers if ln["lot_number_id"] == fh_obj.get("lot_number_id")), {})
-                row["house_name"]  = house_map.get(fh_obj.get("house_id"), "")
-                row["lot_number"]  = ln_obj.get("lot_number", "")
+                fh_obj = next((f for f in o_farm_fhs if f["flock_house_id"] == fh_id), {})
+                ln_obj = next((ln for ln in lot_numbers if ln["lot_number_id"] == fh_obj.get("lot_number_id")), {})
+                row["house_name"] = house_map.get(fh_obj.get("house_id"), "")
+                row["lot_number"] = ln_obj.get("lot_number", "")
                 o_details.append(row)
 
         if not o_details:
-            st.info("予定配送が登録されていません。各鶏舎の発注予測で「予定配送を登録・更新」を実行してください。")
+            st.info("予定配送が登録されていません。タブ1の発注予測でシミュレーションを実行してください。")
         else:
-            import pandas as pd
             df_od = pd.DataFrame(o_details)
             df_od["delivery_date_dt"] = pd.to_datetime(df_od["delivery_date"]).dt.date
             df_sel = df_od[
@@ -1081,32 +1015,8 @@ with tab2:
             if df_sel.empty:
                 st.info(f"指定期間（{o_from}〜{o_to}）に予定配送がありません")
             else:
-                # 一覧表示
-                st.markdown("#### 📋 予定配送一覧")
-                disp_od = df_sel[[
-                    "house_name","lot_number","delivery_date","day_age","order_qty","event_notes","pred_tank"
-                ]].copy()
-                disp_od.columns = ["鶏舎","ロット","納品予定日","日齢","発注量kg","発注内容","予測残量kg"]
                 o_total = df_sel["order_qty"].sum()
-                st.dataframe(disp_od, use_container_width=True, hide_index=True)
                 st.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
-
-                # 発注書プレビュー
-                st.markdown("#### 📄 発注書プレビュー")
-                o_preview_lines = [
-                    f"【飼料発注】{o_farm}",
-                    f"発注日: {o_order_date}",
-                    "",
-                ]
-                for _, r in df_sel.sort_values("delivery_date").iterrows():
-                    o_preview_lines.append(
-                        f"  納品予定日: {r['delivery_date']}（{r['house_name']} 日齢{int(r['day_age'] or 0)}日）"
-                        f"　{r['order_qty']:,.0f} kg　{r['event_notes'] or ''}"
-                    )
-                o_preview_lines += ["", f"合計: {o_total:,.0f} kg", "",
-                                    "よろしくお願いいたします。", o_farm]
-                o_preview_text = "\n".join(o_preview_lines)
-                o_body = st.text_area("発注書", value=o_preview_text, height=250, key="o_preview")
 
                 st.divider()
                 obc1, obc2 = st.columns([1, 3])
@@ -1128,76 +1038,76 @@ with tab2:
                                     "order_id": o_order_id,
                                     "status":   "発注済",
                                 }).eq("detail_id", detail_id).execute()
+                            # 発注書テキスト生成
+                            o_lines = [f"【飼料発注】{o_farm}", f"発注日: {o_order_date}", ""]
+                            for _, r in df_sel.sort_values("delivery_date").iterrows():
+                                o_lines.append(
+                                    f"  {r['delivery_date']}（{r['house_name']} 日齢{int(r['day_age'] or 0)}日）"
+                                    f"　{r['order_qty']:,.0f}kg　{r['event_notes'] or ''}")
+                            o_lines += ["", f"合計: {o_total:,.0f} kg", "", "よろしくお願いいたします。", o_farm]
                             st.session_state["o_order_id"]    = o_order_id
-                            st.session_state["o_preview_text"] = o_body
-                            st.success(f"✅ 発注を登録しました（ID: {o_order_id}）")
+                            st.session_state["o_order_text"]  = "\n".join(o_lines)
+                            st.success(f"✅ 発注登録完了（ID: {o_order_id}）")
                             st.rerun()
                         except Exception as e:
                             st.error(f"登録エラー: {e}")
 
                 with obc2:
                     if "o_order_id" in st.session_state:
-                        st.markdown("#### 📤 送信方法を選択")
                         send_method = st.radio("送信方法",
-                            ["📧 メール", "📠 FAX（印刷用テキスト）"],
+                            ["📧 メール", "📠 FAX"],
                             horizontal=True, key="o_send_method")
 
-                        o_email_settings = supabase.table("email_settings").select("*").execute().data
-                        o_farm_settings  = [es for es in o_email_settings
-                                            if es.get("farm_id") == o_farm_id or es.get("farm_id") is None]
-
-                        o_subject = st.text_input("件名",
-                            value=f"【飼料発注】{o_farm} {o_order_date}", key="o_subject")
-                        o_body_send = st.text_area("発注書本文",
-                            value=st.session_state.get("o_preview_text",""),
+                        o_body_text = st.text_area("発注書",
+                            value=st.session_state.get("o_order_text", ""),
                             height=200, key="o_body")
 
                         if send_method == "📧 メール":
-                            if not o_farm_settings:
+                            o_email_settings = supabase.table("email_settings").select("*").execute().data
+                            o_farm_es = [es for es in o_email_settings
+                                         if es.get("farm_id") == o_farm_id or es.get("farm_id") is None]
+                            if not o_farm_es:
                                 st.warning("メール設定がありません")
                             else:
-                                o_setting_opts = {es["setting_name"]: es for es in o_farm_settings}
-                                o_sel_setting  = st.selectbox("送信先設定",
-                                    list(o_setting_opts.keys()), key="o_email_sel")
-                                o_es      = o_setting_opts[o_sel_setting]
+                                o_setting_opts = {es["setting_name"]: es for es in o_farm_es}
+                                o_es      = o_setting_opts[st.selectbox("送信先",
+                                    list(o_setting_opts.keys()), key="o_email_sel")]
                                 o_to_addr = st.text_input("宛先", value=o_es.get("to_address",""), key="o_to")
                                 o_cc_addr = st.text_input("CC",  value=o_es.get("cc_address",""),  key="o_cc")
-                                if st.button("📧 メール送信", key="o_send_email", type="primary"):
+                                o_subject = st.text_input("件名",
+                                    value=f"【飼料発注】{o_farm} {o_order_date}", key="o_subject")
+                                if st.button("📧 送信", key="o_send_email", type="primary"):
                                     try:
                                         import smtplib
                                         from email.mime.text import MIMEText
                                         from email.mime.multipart import MIMEMultipart
-                                        smtp_host = st.secrets.get("smtp", {}).get("host", "")
-                                        smtp_port = int(st.secrets.get("smtp", {}).get("port", 587))
-                                        smtp_user = st.secrets.get("smtp", {}).get("user", "")
-                                        smtp_pass = st.secrets.get("smtp", {}).get("password", "")
+                                        smtp_host = st.secrets.get("smtp",{}).get("host","")
+                                        smtp_port = int(st.secrets.get("smtp",{}).get("port",587))
+                                        smtp_user = st.secrets.get("smtp",{}).get("user","")
+                                        smtp_pass = st.secrets.get("smtp",{}).get("password","")
                                         if not smtp_host:
                                             st.error("SMTP設定がありません")
                                         else:
                                             msg = MIMEMultipart()
                                             msg["From"]    = smtp_user
                                             msg["To"]      = o_to_addr
-                                            if o_cc_addr:
-                                                msg["Cc"] = o_cc_addr
+                                            if o_cc_addr: msg["Cc"] = o_cc_addr
                                             msg["Subject"] = o_subject
-                                            msg.attach(MIMEText(o_body_send, "plain", "utf-8"))
-                                            recipients = [a.strip() for a in o_to_addr.split(",")]
+                                            msg.attach(MIMEText(o_body_text, "plain", "utf-8"))
+                                            rcpts = [a.strip() for a in o_to_addr.split(",")]
                                             if o_cc_addr:
-                                                recipients += [a.strip() for a in o_cc_addr.split(",")]
-                                            with smtplib.SMTP(smtp_host, smtp_port) as server:
-                                                server.starttls()
-                                                server.login(smtp_user, smtp_pass)
-                                                server.sendmail(smtp_user, recipients, msg.as_string())
-                                            st.success(f"✅ メールを送信しました → {o_to_addr}")
+                                                rcpts += [a.strip() for a in o_cc_addr.split(",")]
+                                            with smtplib.SMTP(smtp_host, smtp_port) as sv:
+                                                sv.starttls()
+                                                sv.login(smtp_user, smtp_pass)
+                                                sv.sendmail(smtp_user, rcpts, msg.as_string())
+                                            st.success(f"✅ 送信完了 → {o_to_addr}")
                                     except Exception as e:
                                         st.error(f"送信エラー: {e}")
 
-                        else:  # FAX（印刷用）
-                            st.markdown("##### 📠 FAX送信用テキスト")
+                        else:  # FAX
                             fax_no = st.text_input("FAX番号", key="o_fax_no",
                                 placeholder="例: 0837-XX-XXXX")
-                            st.info(f"FAX番号: {fax_no or '未入力'}\n上記の発注書本文を印刷またはFAXソフトに貼り付けて送信してください。")
-                            if st.button("📋 クリップボードにコピー（手動）", key="o_fax_copy"):
-                                st.code(o_body_send, language=None)
-                                st.caption("↑ 上のテキストを選択してコピーしてください")
+                            st.caption("上の発注書テキストをコピーしてFAXソフトに貼り付けてください")
+                            st.code(o_body_text, language=None)
 
