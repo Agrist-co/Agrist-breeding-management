@@ -663,6 +663,18 @@ try:
         fc_std_qty, fc_min_alert, fc_lead_time,
         adj_dict=adj_dict)
 
+    # ---- デバッグ情報 ----
+    with st.expander("🔍 デバッグ情報（発注計算が出ない場合に確認）", expanded=False):
+        today_day_dbg = (date.today() - chick_in_date).days
+        first_qty_dbg = float(sel_fh.get("initial_feed_delivery_qty") or 0)
+        st.write(f"**今日の日齢**: {today_day_dbg}日 / **出荷日齢**: {planned_age}日")
+        st.write(f"**初回投入量**: {first_qty_dbg:,.0f} kg")
+        st.write(f"**配送単位**: {fc_std_qty:,.0f} kg / **最低残量アラート**: {fc_min_alert:,.0f} kg")
+        st.write(f"**補正係数**: {float(sel_fh.get('feed_correction_factor') or 1.0):.3f}")
+        dbg_df = df_fc[["day","date_str","act_feed_kg","std_feed_kg","cum_feed_kg","pred_tank","delivery_kg","event_notes"]].copy()
+        dbg_df.columns = ["日齢","月日","予測採食","標準採食","採食累計","予測残量","発注量","備考"]
+        st.dataframe(dbg_df.round(1), use_container_width=True, hide_index=True)
+
     # ---- Step4: 編集可能なシミュレーション表 ----
     st.markdown("#### 📊 タンク残量シミュレーション（直接編集→自動再計算）")
 
