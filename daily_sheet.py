@@ -191,6 +191,20 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     adj_rates   = np.ones(len(df))
     actual_feed = df["std_feed_kg"].values.copy()
 
+    # 日次記録がある日の実績採食を先にactual_feedに反映
+    # （補正率計算の分母を「予測残量ベースの消費量」と一致させるため）
+    for d, r in rec_by_day.items():
+        if d in day_to_idx if False else True:  # day_to_idxはまだ未定義なのでrecで直接
+            pass
+    # ※day_to_idxは後で定義するため、ここではrec_by_dayをインデックスで直接処理
+    for idx_pre, day_val in enumerate(days):
+        r_pre = rec_by_day.get(day_val, {})
+        if r_pre and house_coef > 0 and r_pre.get("feed_duration_min"):
+            bid_pre  = r_pre.get("feed_brand_id")
+            bobj_pre = next((b for b in feed_brands if b["feed_brand_id"] == bid_pre), {})                        if bid_pre else get_brand_for_age(day_val, active_brs) or {}
+            ratio_pre = float(bobj_pre.get("transfer_coef_ratio") or 1.0)
+            actual_feed[idx_pre] = float(r_pre["feed_duration_min"]) * house_coef * ratio_pre
+
     # 統合タンク残量辞書: 0日齢(first_qty)を起点に、act_dict→adj_tank_mapで上書き
     combined_tank = {}
 
@@ -237,12 +251,13 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                     delivered_between += float(rec_by_day[dd].get("feed_delivery_qty") or 0)
 
             consumed = s_tank + delivered_between - e_tank
-            # 区間s〜e-1の標準採食量合計
-            std_cons = sum(
-                df.loc[day_to_idx[d], "std_feed_kg"]
+            # 区間s〜e-1の実際の採食量合計
+            # actual_feed: 日次記録がある日は実績値、ない日は標準値（補正率1.0）
+            actual_cons = sum(
+                actual_feed[day_to_idx[d]]
                 for d in range(s, e) if d in day_to_idx
             )
-            rate = consumed / std_cons if std_cons > 0 else 1.0
+            rate = consumed / actual_cons if actual_cons > 0 else 1.0
             latest_rate = rate
             for d in range(s, e):
                 if d in day_to_idx:
@@ -735,9 +750,17 @@ try:
         st.write(f"**初回投入量**: {first_qty_dbg:,.0f} kg")
         st.write(f"**配送単位**: {fc_std_qty:,.0f} kg / **最低残量アラート**: {fc_min_alert:,.0f} kg")
         st.write(f"**補正係数**: {float(sel_fh.get('feed_correction_factor') or 1.0):.3f}")
-        # 補正率計算の確認
         st.write("**adj_dict（実測残量・確定発注）**:", adj_dict)
-        # 区間補正率の確認（df_fcのadj_rateを確認）
+        # 区間ごとの補正率計算を表示
+        for ck_d_str in sorted(adj_dict.keys(), key=lambda x: int(x)):
+            ck_d = int(ck_d_str)
+            ck_v = adj_dict[ck_d_str]
+            if ck_v.get("actual_tank") is not None and ck_d > 0:
+                tank_val = float(ck_v["actual_tank"])
+                std_sum  = df_fc.loc[df_fc["day"] < ck_d, "std_feed_kg"].sum()
+                consumed = first_qty_dbg - tank_val
+                rate_calc = consumed / std_sum if std_sum > 0 else 0
+                st.write(f"日齢0→{ck_d}: 消費={consumed:.0f}kg / 標準合計={std_sum:.1f}kg = **補正率{rate_calc:.4f}**")
         rate_chk = df_fc[["day","date_str","adj_rate","act_feed_kg","std_feed_kg","pred_tank","delivery_kg"]].copy()
         rate_chk.columns = ["日齢","月日","補正率","予測採食","標準採食","予測残量","発注量"]
         st.dataframe(rate_chk.round(4), use_container_width=True, hide_index=True)
