@@ -270,7 +270,23 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             event_notes[d] = f"実績: 残{real_tank[d]:.0f}kg 納品{delivery_kg[d]:.0f}kg"
             evening_pred   = real_tank[d] + delivery_kg[d] - daily_feed
 
-        # ── 優先2: 日次記録あり（採食時間 or 納品量） ──
+        # ── 優先2: 調整発注（確定発注・手動上書き） ──
+        elif d in adj_delivery_map:
+            adj_qty        = adj_delivery_map[d]
+            delivery_kg[d] = adj_qty
+            event_notes[d] = f"[確定] {get_order_note_for_day(d, adj_qty)}"
+            # 採食は日次記録があれば実績、なければ標準値
+            if r and house_coef > 0 and r.get("feed_duration_min"):
+                bid   = r.get("feed_brand_id")
+                bobj  = next((b for b in feed_brands if b["feed_brand_id"] == bid), {})                         if bid else get_brand_for_age(d, active_brs) or {}
+                ratio = float(bobj.get("transfer_coef_ratio") or 1.0)
+                ri    = float(r["feed_duration_min"]) * house_coef * ratio
+                actual_feed[d] = ri
+                evening_pred   = pred_tank[d] + adj_qty - ri
+            else:
+                evening_pred   = pred_tank[d] + adj_qty - daily_feed
+
+        # ── 優先3: 日次記録あり（採食時間 or 納品量） ──
         elif r and (r.get("feed_duration_min") or r.get("feed_delivery_qty")):
             dt = float(r.get("feed_delivery_qty") or 0)
             if house_coef > 0 and r.get("feed_duration_min"):
@@ -285,13 +301,6 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             if dt > 0:
                 delivery_kg[d] = dt
                 event_notes[d] = f"納品: {dt:.0f}kg"
-
-        # ── 優先3: 調整発注（手動上書き） ──
-        elif d in adj_delivery_map:
-            adj_qty        = adj_delivery_map[d]
-            delivery_kg[d] = adj_qty
-            event_notes[d] = f"[調整] {get_order_note_for_day(d, adj_qty)}"
-            evening_pred   = pred_tank[d] + adj_qty - daily_feed
 
         # ── 優先4: 予測発注計算（タンク残量ベース） ──
         else:
@@ -749,16 +758,13 @@ try:
             changed = True
         elif orig_real is not None and pd.notna(orig_real):
             entry["actual_tank"] = float(orig_real)
-        # 調整発注量の変更を検知（空欄=予定発注を使用するためNoneは無視）
+        # 調整発注量（入力があれば必ず保存、空欄=予定発注に戻す）
         orig_del = edit_df.at[i, "調整発注kg"]
         new_del  = row.get("調整発注kg")
         if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
+            entry["delivered"] = float(new_del)
             if new_del != orig_del:
-                entry["delivered"] = float(new_del)
                 changed = True
-            else:
-                entry["delivered"] = float(new_del)
-        # 調整発注が空欄の場合はadj_dictからも削除（予定発注に戻す）
         if entry:
             new_adj[day] = entry
 
