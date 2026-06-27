@@ -1200,3 +1200,4 @@ with tab2:
                             if st.button("📋 クリップボードにコピー（手動）", key="o_fax_copy"):
                                 st.code(o_body_send, language=None)
                                 st.caption("↑ 上のテキストを選択してコピーしてください")
+
