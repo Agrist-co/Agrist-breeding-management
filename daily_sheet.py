@@ -772,33 +772,6 @@ with tab1:
             fc_std_qty, fc_min_alert, fc_lead_time,
             adj_dict=adj_dict)
 
-        # ---- デバッグ情報 ----
-        with st.expander("🔍 デバッグ情報", expanded=False):
-            today_day_dbg = (date.today() - chick_in_date).days
-            first_qty_dbg = float(sel_fh.get("initial_feed_delivery_qty") or 0)
-            st.write(f"**今日の日齢**: {today_day_dbg}日 / **出荷日齢**: {planned_age}日")
-            st.write(f"**初回投入量**: {first_qty_dbg:,.0f} kg")
-            st.write(f"**配送単位**: {fc_std_qty:,.0f} kg / **最低残量アラート**: {fc_min_alert:,.0f} kg")
-            st.write(f"**補正係数**: {float(sel_fh.get('feed_correction_factor') or 1.0):.3f}")
-            st.write("**adj_dict（実測残量・確定発注）**:", adj_dict)
-            # 銘柄マスタ確認（全銘柄のis_active値を表示）
-            st.write(f"**全銘柄数**: {len(feed_brands)}")
-            for b in feed_brands:
-                st.write(f"  {b.get('brand_name')} is_active={repr(b.get('is_active'))} type={type(b.get('is_active')).__name__} age_from={b.get('age_from_days')} age_to={b.get('age_to_days')}")
-            # 区間ごとの補正率計算を表示
-            for ck_d_str in sorted(adj_dict.keys(), key=lambda x: int(x)):
-                ck_d = int(ck_d_str)
-                ck_v = adj_dict[ck_d_str]
-                if ck_v.get("actual_tank") is not None and ck_d > 0:
-                    tank_val = float(ck_v["actual_tank"])
-                    std_sum  = df_fc.loc[df_fc["day"] < ck_d, "std_feed_kg"].sum()
-                    consumed = first_qty_dbg - tank_val
-                    rate_calc = consumed / std_sum if std_sum > 0 else 0
-                    st.write(f"日齢0→{ck_d}: 消費={consumed:.0f}kg / 標準合計={std_sum:.1f}kg = **補正率{rate_calc:.4f}**")
-            rate_chk = df_fc[["day","date_str","adj_rate","act_feed_kg","std_feed_kg","pred_tank","delivery_kg"]].copy()
-            rate_chk.columns = ["日齢","月日","補正率","予測採食","標準採食","予測残量","発注量"]
-            st.dataframe(rate_chk.round(4), use_container_width=True, hide_index=True)
-
         # ---- Step4: 編集可能なシミュレーション表 ----
         st.markdown("#### 📊 タンク残量シミュレーション（直接編集→自動再計算）")
 
@@ -1021,19 +994,6 @@ with tab2:
         with oc3:
             o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date")
 
-        # デバッグ: 取得状況確認
-        with st.expander("🔍 発注デバッグ", expanded=False):
-            st.write(f"育成中鶏舎数: {len(o_farm_fhs)}")
-            st.write(f"鶏舎ID一覧: {o_fh_ids}")
-            st.write(f"取得した予定配送件数: {len(o_details)}")
-            if o_farm_fhs:
-                st.write(f"鶏舎statusサンプル: {[fh.get('status') for fh in o_farm_fhs[:3]]}")
-            # statusに関係なく全件取得して確認
-            for fh_id in o_fh_ids[:2]:
-                all_rows = supabase.table("feed_order_details") \
-                    .select("detail_id,order_id,status,delivery_date,order_qty") \
-                    .eq("flock_house_id", fh_id).limit(5).execute().data
-                st.write(f"鶏舎{fh_id}の全データ(5件): {all_rows}")
 
         if not o_details:
             st.info("予定配送が登録されていません。タブ1の発注予測でシミュレーションを実行してください。")
@@ -1044,10 +1004,7 @@ with tab2:
                 (df_od["delivery_date_dt"] >= o_from) &
                 (df_od["delivery_date_dt"] <= o_to)
             ].copy()
-            with st.expander("🔍 フィルタデバッグ", expanded=True):
-                st.write(f"o_from={o_from}, o_to={o_to}")
-                st.write(f"フィルタ前: {len(df_od)}件 → フィルタ後: {len(df_sel)}件")
-                st.write(df_sel[["house_name","delivery_date","order_qty","event_notes"]] if not df_sel.empty else "空")
+
 
             if df_sel.empty:
                 st.info(f"指定期間（{o_from}〜{o_to}）に予定配送がありません")
