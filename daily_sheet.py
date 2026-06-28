@@ -458,7 +458,7 @@ tab1, tab2 = st.tabs(["📝 日次入力・発注予測", "🚛 発注"])
 
 
 with tab1:
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 1])
     with c1:
         sel_farm    = st.selectbox("農場", list(farm_opts.keys()), key="s_farm")
         sel_farm_id = farm_opts[sel_farm]
@@ -502,13 +502,13 @@ with tab1:
             sel_fh_id
         )
 
+    with c5:
+        st.markdown("&nbsp;", unsafe_allow_html=True)  # ラベル分の余白
+        _do_save = st.button("💾 一括保存", type="primary", key="sheet_save", use_container_width=True)
+
     sel_fh    = next(fh for fh in lot_fhs if fh["flock_house_id"] == sel_fh_id)
     sel_house = next((h for h in houses if h["house_id"] == sel_fh["house_id"]), {})
     sel_ln    = next(ln for ln in lot_numbers if ln["lot_number_id"] == sel_ln_id)
-
-    # ---- 上部ボタン（一括保存）: 抽出行の右に配置 ----
-    btn1, _ = st.columns([1, 5])
-    _do_save = btn1.button("💾 一括保存", type="primary", key="sheet_save")
 
     # ----------------------------------------------------------
     # 上部ヘッダー情報（DB自動取得）
@@ -759,9 +759,9 @@ with tab1:
 
     # ---- 発注予測シミュレーション ----
     st.markdown("---")
-    _fc_h, _fc_btn = st.columns([4, 1])
+    _fc_h, _fc_btn = st.columns([3, 1])
     _fc_h.markdown("### 🚛 発注予測")
-    _do_fc_save = _fc_btn.button("📋 予定配送を保存・更新", type="secondary", key="fc_order_save")
+    _do_fc_save = _fc_btn.button("📋 予定配送を保存・更新", type="secondary", key="fc_order_save", use_container_width=True)
     fc_std_qty   = 4000.0   # 配送単位（kg）
     fc_min_alert = 200.0    # 最低残量アラート（kg）
     fc_lead_time = 0
