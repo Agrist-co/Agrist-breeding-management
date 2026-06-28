@@ -423,8 +423,9 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         else:
             oq = 0.0
             if pred_tank[d] <= min_alert:
-                # 出荷日までの残り採食量合計（補正後の予測採食量を使用）
-                future_need = df.loc[d:, "act_feed_kg"].sum()
+                # 出荷日までの残り採食量合計（日齢dのインデックスから）
+                _d_idx      = day_to_idx.get(d, d)
+                future_need = float(actual_feed[_d_idx:].sum())
                 cur_tank    = pred_tank[d]
                 # 今回の発注後に出荷日まで持つか判定
                 # 持たない → 配送単位で発注
