@@ -1101,7 +1101,7 @@ with tab2:
                                 _tank_no = fh_tank_map.get(r.get("flock_house_id"), "-")
                                 _rows_html += f"""<tr>
                                     <td>{r['delivery_date']}</td>
-                                    <td>{_tank_no}</td>
+                                    <td class="tank">{_tank_no}</td>
                                     <td style="text-align:right">{r['order_qty']:,.0f}</td>
                                     <td class="notes">{r['event_notes'] or ''}</td>
                                 </tr>"""
@@ -1113,8 +1113,10 @@ with tab2:
   p {{ margin: 2px 0; font-size: 11pt; }}
   table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
   th {{ background: #f0f0f0; border: 1px solid #999; padding: 6px 8px; font-size: 11pt; text-align: left; white-space: nowrap; }}
-  td {{ border: 1px solid #999; padding: 5px 8px; white-space: nowrap; overflow: hidden; }}
-  td.notes {{ font-size: 9pt; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }}
+  th.tank {{ width: 60px; }}
+  td {{ border: 1px solid #999; padding: 5px 8px; white-space: nowrap; overflow: hidden; font-size: 11pt; }}
+  td.tank {{ width: 60px; }}
+  td.notes {{ font-size: 11pt; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px; }}
   tr {{ height: 24px; max-height: 24px; }}
   .total {{ font-weight: bold; text-align: right; padding: 6px 8px; border-top: 2px solid #333; }}
   .footer {{ margin-top: 20px; font-size: 11pt; }}
@@ -1125,7 +1127,7 @@ with tab2:
 <p>発注日: {o_order_date}</p>
 <table>
   <thead><tr>
-    <th>納品予定日</th><th>タンクNo</th><th style="text-align:right">発注量(kg)</th><th>発注内容</th>
+    <th>納品予定日</th><th class="tank">タンクNo</th><th style="text-align:right">発注量(kg)</th><th>発注内容</th>
   </tr></thead>
   <tbody>{_rows_html}</tbody>
   <tfoot><tr>
