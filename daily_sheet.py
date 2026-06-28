@@ -1040,15 +1040,14 @@ with tab2:
         else:
             df_od = pd.DataFrame(o_details)
             df_od["delivery_date_dt"] = pd.to_datetime(df_od["delivery_date"]).dt.date
-            with st.expander("🔍 フィルタデバッグ", expanded=True):
-                st.write(f"o_from={o_from} (type={type(o_from).__name__})")
-                st.write(f"o_to={o_to} (type={type(o_to).__name__})")
-                st.write(f"delivery_date_dt sample: {df_od['delivery_date_dt'].tolist()}")
-                st.write(f"delivery_date_dt type: {type(df_od['delivery_date_dt'].iloc[0]).__name__}")
             df_sel = df_od[
                 (df_od["delivery_date_dt"] >= o_from) &
                 (df_od["delivery_date_dt"] <= o_to)
             ].copy()
+            with st.expander("🔍 フィルタデバッグ", expanded=True):
+                st.write(f"o_from={o_from}, o_to={o_to}")
+                st.write(f"フィルタ前: {len(df_od)}件 → フィルタ後: {len(df_sel)}件")
+                st.write(df_sel[["house_name","delivery_date","order_qty","event_notes"]] if not df_sel.empty else "空")
 
             if df_sel.empty:
                 st.info(f"指定期間（{o_from}〜{o_to}）に予定配送がありません")
