@@ -928,9 +928,9 @@ with tab2:
             rows = supabase.table("feed_order_details") \
                 .select("*") \
                 .eq("flock_house_id", fh_id) \
-                .is_("order_id", "null") \
-                .eq("status", "予定") \
                 .order("delivery_date").execute().data
+            # 予定・発注済みを両方含める（order_idなし or あり）
+            rows = [r for r in rows if r.get("delivery_date")]
             for row in rows:
                 fh_obj = next((f for f in o_farm_fhs if f["flock_house_id"] == fh_id), {})
                 ln_obj = next((ln for ln in lot_numbers if ln["lot_number_id"] == fh_obj.get("lot_number_id")), {})
@@ -986,8 +986,8 @@ with tab2:
                 st.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
 
                 # 発注一覧表示（納品予定日昇順）
-                disp_sel = df_sel[["delivery_date","house_name","order_qty","event_notes"]].copy()
-                disp_sel.columns = ["納品予定日","鶏舎","発注量kg","発注内容"]
+                disp_sel = df_sel[["delivery_date","house_name","order_qty","event_notes","status"]].copy()
+                disp_sel.columns = ["納品予定日","鶏舎","発注量kg","発注内容","状況"]
                 disp_sel = disp_sel.sort_values("納品予定日").reset_index(drop=True)
                 st.dataframe(disp_sel, use_container_width=True, hide_index=True)
 
@@ -1027,13 +1027,16 @@ with tab2:
 
                 with obc2:
                     if "o_order_id" in st.session_state:
+                        # ---- 発注書プレビュー ----
+                        st.markdown("#### 📄 発注書プレビュー")
+                        o_body_text = st.text_area("発注書（編集可）",
+                            value=st.session_state.get("o_order_text", ""),
+                            height=250, key="o_body")
+
+                        st.markdown("#### 📤 送信")
                         send_method = st.radio("送信方法",
                             ["📧 メール", "📠 FAX"],
                             horizontal=True, key="o_send_method")
-
-                        o_body_text = st.text_area("発注書",
-                            value=st.session_state.get("o_order_text", ""),
-                            height=200, key="o_body")
 
                         if send_method == "📧 メール":
                             o_email_settings = supabase.table("email_settings").select("*").execute().data
@@ -1043,13 +1046,13 @@ with tab2:
                                 st.warning("メール設定がありません")
                             else:
                                 o_setting_opts = {es["setting_name"]: es for es in o_farm_es}
-                                o_es      = o_setting_opts[st.selectbox("送信先",
+                                o_es      = o_setting_opts[st.selectbox("送信先設定",
                                     list(o_setting_opts.keys()), key="o_email_sel")]
                                 o_to_addr = st.text_input("宛先", value=o_es.get("to_address",""), key="o_to_addr")
                                 o_cc_addr = st.text_input("CC",  value=o_es.get("cc_address",""),  key="o_cc")
                                 o_subject = st.text_input("件名",
                                     value=f"【飼料発注】{o_farm} {o_order_date}", key="o_subject")
-                                if st.button("📧 送信", key="o_send_email", type="primary"):
+                                if st.button("📧 メール送信", key="o_send_email", type="primary"):
                                     try:
                                         import smtplib
                                         from email.mime.text import MIMEText
@@ -1074,12 +1077,14 @@ with tab2:
                                                 sv.starttls()
                                                 sv.login(smtp_user, smtp_pass)
                                                 sv.sendmail(smtp_user, rcpts, msg.as_string())
-                                            st.success(f"✅ 送信完了 → {o_to_addr}")
+                                            st.success(f"✅ メール送信完了 → {o_to_addr}")
                                     except Exception as e:
                                         st.error(f"送信エラー: {e}")
 
                         else:  # FAX
                             fax_no = st.text_input("FAX番号", key="o_fax_no",
                                 placeholder="例: 0837-XX-XXXX")
-                            st.caption("上の発注書テキストをコピーしてFAXソフトに貼り付けてください")
-                            st.code(o_body_text, language=None)
+                            st.info(f"FAX番号: {fax_no or '未入力'}")
+                            st.caption("発注書テキストをコピーしてFAXソフトに貼り付けてください")
+                            if st.button("📋 テキストを表示", key="o_fax_show"):
+                                st.code(o_body_text, language=None)
