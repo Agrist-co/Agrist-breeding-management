@@ -644,7 +644,7 @@ with tab1:
         use_container_width=True,
         hide_index=True,
         num_rows="fixed",
-        height=(planned_age + 1) * 28 + 38,
+        height=25 * 28 + 38,
         column_order=display_cols,
         column_config={
             "日令":       st.column_config.NumberColumn("日令",      disabled=True, width=40),
@@ -821,7 +821,7 @@ with tab1:
             use_container_width=True,
             hide_index=True,
             num_rows="fixed",
-        height=(planned_age + 1) * 28 + 38,
+        height=25 * 28 + 38,
             column_config={
                 "日齢":       st.column_config.NumberColumn("日齢",       disabled=True, width=42),
                 "月日":       st.column_config.TextColumn(  "月日",       disabled=True, width=60),
@@ -981,7 +981,7 @@ with tab2:
             st.session_state.pop("o_order_id", None)
             st.session_state.pop("o_order_text", None)
 
-        oc1, oc2, oc3 = st.columns(3)
+        oc1, oc2, oc3, oc4 = st.columns([2, 2, 2, 1])
         with oc1:
             o_from = st.date_input("納品範囲（開始）",
                 value=st.session_state.get("o_from_val", _min_date), key="o_from")
@@ -992,7 +992,10 @@ with tab2:
             st.session_state["o_to_val"] = o_to
         with oc3:
             o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date")
-
+        with oc4:
+            st.markdown("&nbsp;", unsafe_allow_html=True)
+            _do_order_save_top = st.button("💾 発注確定登録", type="primary",
+                key="o_save_top", use_container_width=True)
 
         if not o_details:
             st.info("予定配送が登録されていません。タブ1の発注予測でシミュレーションを実行してください。")
@@ -1010,10 +1013,8 @@ with tab2:
             else:
                 o_total = df_sel["order_qty"].sum()
 
-                # 件数・合計とボタンを横並び
-                ob_info, ob_btn = st.columns([3, 1])
-                ob_info.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
-                _do_order_save = ob_btn.button("💾 発注確定登録", type="primary", key="o_save")
+                st.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
+                _do_order_save = _do_order_save_top
 
                 # 発注一覧表示（納品予定日昇順）
                 disp_sel = df_sel[["delivery_date","house_name","order_qty","event_notes","status"]].copy()
