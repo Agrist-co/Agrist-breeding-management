@@ -506,10 +506,9 @@ with tab1:
     sel_house = next((h for h in houses if h["house_id"] == sel_fh["house_id"]), {})
     sel_ln    = next(ln for ln in lot_numbers if ln["lot_number_id"] == sel_ln_id)
 
-    # ---- 上部ボタン行 ----
-    btn1, btn2, _ = st.columns([1, 1, 4])
-    _do_save      = btn1.button("💾 一括保存",          type="primary", key="sheet_save")
-    _do_fc_save   = btn2.button("📋 予定配送を保存・更新", type="secondary", key="fc_order_save")
+    # ---- 上部ボタン（一括保存）: 抽出行の右に配置 ----
+    btn1, _ = st.columns([1, 5])
+    _do_save = btn1.button("💾 一括保存", type="primary", key="sheet_save")
 
     # ----------------------------------------------------------
     # 上部ヘッダー情報（DB自動取得）
@@ -760,7 +759,9 @@ with tab1:
 
     # ---- 発注予測シミュレーション ----
     st.markdown("---")
-    st.markdown("### 🚛 発注予測")
+    _fc_h, _fc_btn = st.columns([4, 1])
+    _fc_h.markdown("### 🚛 発注予測")
+    _do_fc_save = _fc_btn.button("📋 予定配送を保存・更新", type="secondary", key="fc_order_save")
     fc_std_qty   = 4000.0   # 配送単位（kg）
     fc_min_alert = 200.0    # 最低残量アラート（kg）
     fc_lead_time = 0
