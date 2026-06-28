@@ -419,6 +419,21 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             if dt > 0:
                 delivery_kg[d] = dt
                 event_notes[d] = f"納品: {dt:.0f}kg"
+            # 日次記録があっても納品なし＆タンク警戒以下なら発注計算
+            if pred_tank[d] <= min_alert and dt == 0:
+                _d_idx      = day_to_idx.get(d, d)
+                future_need = float(actual_feed[_d_idx:].sum())
+                cur_tank    = pred_tank[d]
+                if future_need - cur_tank > 0:
+                    if future_need - (cur_tank + std_qty) <= 0:
+                        oq_r = round((future_need - cur_tank) / 100) * 100
+                        oq_r = max(oq_r, 100)
+                        delivery_kg[d] = oq_r
+                        event_notes[d] = f"最終: {get_order_note_for_day(d, oq_r)}"
+                    else:
+                        delivery_kg[d] = std_qty
+                        event_notes[d] = get_order_note_for_day(d, std_qty)
+                    evening_pred += delivery_kg[d]
 
         # ── 優先4: 予測発注計算（タンク残量ベース） ──
         else:
