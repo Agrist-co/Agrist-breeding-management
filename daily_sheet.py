@@ -1030,11 +1030,11 @@ with tab2:
         # ---- 期間・発注日選択 ----
         # セッション初期化（農場が変わったらリセット、発注IDは保持）
         _farm_change_key = "o_farm_prev"
-        if st.session_state.get(_farm_change_key) != o_farm_id:
+        _sel_ids_str = str(sorted(_sel_farm_ids))
+        if st.session_state.get(_farm_change_key) != _sel_ids_str:
             st.session_state["o_from_val"] = _min_date
             st.session_state["o_to_val"]   = _max_date
-            st.session_state[_farm_change_key] = o_farm_id
-            # 農場変更時のみ発注IDをリセット
+            st.session_state[_farm_change_key] = _sel_ids_str
             st.session_state.pop("o_order_id", None)
             st.session_state.pop("o_order_text", None)
 
@@ -1170,7 +1170,7 @@ with tab2:
                         if send_method == "📧 メール":
                             o_email_settings = supabase.table("email_settings").select("*").execute().data
                             o_farm_es = [es for es in o_email_settings
-                                         if es.get("farm_id") == o_farm_id or es.get("farm_id") is None]
+                                         if es.get("farm_id") in _sel_farm_ids or es.get("farm_id") is None]
                             if not o_farm_es:
                                 st.warning("メール設定がありません")
                             else:
