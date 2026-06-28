@@ -1082,11 +1082,16 @@ with tab2:
                                         st.error(f"送信エラー: {e}")
 
                         else:  # 印刷
-                            st.caption("発注書を印刷するには以下のテキストをコピーしてWord等に貼り付けてください")
-                            st.code(o_body_text, language=None)
+                            _print_html = o_body_text.replace("\n", "<br>").replace(" ", "&nbsp;")
                             st.components.v1.html(f"""
-                            <button onclick="window.print()" style="
-                                background:#1f77b4;color:white;border:none;
-                                padding:8px 20px;border-radius:4px;cursor:pointer;font-size:14px;">
-                                🖨️ このページを印刷
-                            </button>""", height=50)
+<html><body>
+<button onclick="
+  var w=window.open('','_blank');
+  w.document.write('<html><head><title>発注書</title><style>body{{font-family:monospace;font-size:13px;padding:20px;white-space:pre-wrap}}</style></head><body>{_print_html}</body></html>');
+  w.document.close();
+  w.focus();
+  w.print();
+" style="background:#1f77b4;color:white;border:none;padding:10px 24px;border-radius:4px;cursor:pointer;font-size:14px;">
+🖨️ 発注書を印刷
+</button>
+</body></html>""", height=60)
