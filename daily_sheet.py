@@ -624,9 +624,14 @@ with tab1:
     ]
 
     df_disp = df_all[display_cols].copy()
-    # 合計列を斃死+淘汰の累計で再計算（入力中もリアルタイム反映）
-    df_disp["合計"] = df_disp["斃死"].fillna(0).astype(int) + df_disp["淘汰"].fillna(0).astype(int)
-    df_disp["合計"] = df_disp["合計"].cumsum()
+
+    # 保存前に斃死+淘汰の累計を事前計算してdisplayに反映
+    _mort_cum = 0
+    _cull_cum = 0
+    for i in range(len(df_disp)):
+        _mort_cum += int(df_disp.at[i, "斃死"] or 0)
+        _cull_cum += int(df_disp.at[i, "淘汰"] or 0)
+        df_disp.at[i, "合計"] = _mort_cum + _cull_cum
 
     edited = st.data_editor(
         df_disp,
@@ -1041,13 +1046,16 @@ with tab2:
                             st.error(f"登録エラー: {e}")
 
                 with obc2:
-                    if "o_order_id" in st.session_state:
-                        # ---- 発注書プレビュー ----
+                    # ---- 発注書プレビュー（発注確定後に表示） ----
+                    if st.session_state.get("o_order_text"):
                         st.markdown("#### 📄 発注書プレビュー")
                         o_body_text = st.text_area("発注書（編集可）",
                             value=st.session_state.get("o_order_text", ""),
                             height=250, key="o_body")
+                    else:
+                        o_body_text = ""
 
+                    if st.session_state.get("o_order_id"):
                         st.markdown("#### 📤 送信")
                         send_method = st.radio("送信方法",
                             ["📧 メール", "🖨️ 印刷"],
