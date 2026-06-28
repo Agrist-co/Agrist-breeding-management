@@ -1035,7 +1035,7 @@ with tab2:
 
                         st.markdown("#### 📤 送信")
                         send_method = st.radio("送信方法",
-                            ["📧 メール", "📠 FAX"],
+                            ["📧 メール", "🖨️ 印刷"],
                             horizontal=True, key="o_send_method")
 
                         if send_method == "📧 メール":
@@ -1081,10 +1081,12 @@ with tab2:
                                     except Exception as e:
                                         st.error(f"送信エラー: {e}")
 
-                        else:  # FAX
-                            fax_no = st.text_input("FAX番号", key="o_fax_no",
-                                placeholder="例: 0837-XX-XXXX")
-                            st.info(f"FAX番号: {fax_no or '未入力'}")
-                            st.caption("発注書テキストをコピーしてFAXソフトに貼り付けてください")
-                            if st.button("📋 テキストを表示", key="o_fax_show"):
-                                st.code(o_body_text, language=None)
+                        else:  # 印刷
+                            st.caption("発注書を印刷するには以下のテキストをコピーしてWord等に貼り付けてください")
+                            st.code(o_body_text, language=None)
+                            st.components.v1.html(f"""
+                            <button onclick="window.print()" style="
+                                background:#1f77b4;color:white;border:none;
+                                padding:8px 20px;border-radius:4px;cursor:pointer;font-size:14px;">
+                                🖨️ このページを印刷
+                            </button>""", height=50)
