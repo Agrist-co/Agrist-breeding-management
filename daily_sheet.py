@@ -426,8 +426,8 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 cur_tank    = pred_tank[d]
                 if future_need - cur_tank > 0:
                     if future_need - (cur_tank + std_qty) <= 0:
-                        oq_r = round((future_need - cur_tank) / 100) * 100
-                        oq_r = max(oq_r, 100)
+                        oq_r = round((future_need - cur_tank) / 1000) * 1000
+                        oq_r = max(oq_r, 1000)
                         delivery_kg[d] = oq_r
                         event_notes[d] = f"最終: {get_order_note_for_day(d, oq_r)}"
                     else:
@@ -446,8 +446,8 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 if future_need - cur_tank <= 0:
                     pass  # 発注不要
                 elif future_need - (cur_tank + std_qty) <= 0:
-                    oq = round((future_need - cur_tank) / 100) * 100
-                    oq = max(oq, 100)
+                    oq = round((future_need - cur_tank) / 1000) * 1000
+                    oq = max(oq, 1000)
                     event_notes[d] = f"最終: {get_order_note_for_day(d, oq)}"
                 else:
                     oq = std_qty
