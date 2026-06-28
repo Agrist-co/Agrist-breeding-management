@@ -1002,11 +1002,22 @@ with tab2:
             _max_date = date.today() + timedelta(days=14)
 
         # ---- 期間・発注日選択 ----
+        # セッション初期化（農場が変わったらリセット）
+        _farm_change_key = f"o_farm_prev"
+        if st.session_state.get(_farm_change_key) != o_farm_id:
+            st.session_state["o_from_val"] = _min_date
+            st.session_state["o_to_val"]   = _max_date
+            st.session_state[_farm_change_key] = o_farm_id
+
         oc1, oc2, oc3 = st.columns(3)
         with oc1:
-            o_from = st.date_input("納品範囲（開始）", value=_min_date, key="o_from")
+            o_from = st.date_input("納品範囲（開始）",
+                value=st.session_state.get("o_from_val", _min_date), key="o_from")
+            st.session_state["o_from_val"] = o_from
         with oc2:
-            o_to   = st.date_input("納品範囲（終了）", value=_max_date, key="o_to")
+            o_to   = st.date_input("納品範囲（終了）",
+                value=st.session_state.get("o_to_val", _max_date), key="o_to")
+            st.session_state["o_to_val"] = o_to
         with oc3:
             o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date")
 
