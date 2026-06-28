@@ -1130,11 +1130,7 @@ with tab2:
     <th>納品予定日</th><th class="tank">タンクNo</th><th style="text-align:right">発注量(kg)</th><th>発注内容</th>
   </tr></thead>
   <tbody>{_rows_html}</tbody>
-  <tfoot><tr>
-    <td colspan="2" style="font-weight:bold">合計</td>
-    <td class="total">{o_total:,.0f}</td>
-    <td></td>
-  </tr></tfoot>
+
 </table>
 <div class="footer"><p>よろしくお願いいたします。</p><p>{o_farm}</p></div>
 <br>
