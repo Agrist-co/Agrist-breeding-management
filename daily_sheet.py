@@ -794,11 +794,14 @@ with tab1:
 
         # ---- デバッグ ----
         with st.expander("🔍 発注デバッグ", expanded=False):
-            st.write(f"first_qty={first_qty}, _pre_total_need={_pre_total_need:.0f}, _pre_delivered={_pre_delivered[0]:.0f}")
             st.write(f"min_alert={fc_min_alert}, std_qty={fc_std_qty}")
-            _dbg = df_fc[df_fc["delivery_kg"] == 0][["day","pred_tank","delivery_kg","event_notes"]].head(20)
-            st.write("発注なし行（最初20件）:")
-            st.dataframe(_dbg.round(1), hide_index=True)
+            st.write(f"初回投入量(fh)={float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
+            # pred_tankが200以下になる行を確認
+            _dbg_alert = df_fc[df_fc["pred_tank"] <= fc_min_alert][["day","date_str","pred_tank","delivery_kg","event_notes"]]
+            st.write(f"タンク200kg以下の行: {len(_dbg_alert)}件")
+            st.dataframe(_dbg_alert.round(1), hide_index=True)
+            # 全行のpred_tankを確認
+            st.dataframe(df_fc[["day","date_str","pred_tank","delivery_kg","act_feed_kg","event_notes"]].round(1), hide_index=True)
 
         # ---- Step4: 編集可能なシミュレーション表 ----
         st.markdown("#### ◇ タンク残量シミュレーション")
