@@ -520,21 +520,16 @@ with tab1:
     total_cull = sum(r["culling_count"]   or 0 for r in all_recs)
     remaining  = chick_in_count + spare_count - total_mort - total_cull
 
-    _header_box_html = f"""<div class="header-box">
-      <span><b>農場</b>: <span class="header-val">{sel_farm}</span></span>&nbsp;&nbsp;
-      <span><b>ロット</b>: <span class="header-val">{sel_ln['lot_number']}</span></span>&nbsp;&nbsp;
-      <span><b>鶏舎</b>: <span class="header-val">{house_map.get(sel_fh['house_id'],'')}</span></span>&nbsp;&nbsp;
-      <span><b>タンクNo</b>: <span class="header-val">{tank_number}</span></span>&nbsp;&nbsp;
-      <span><b>タンク容量</b>: <span class="header-val">{tank_capacity} kg</span></span>&nbsp;&nbsp;
-      <span><b>搬送係数</b>: <span class="header-val">{house_coef} kg/min</span></span>
-      <br>
-      <span><b>入雛日</b>: <span class="header-val">{chick_in_date}</span></span>&nbsp;&nbsp;
-      <span><b>入雛羽数</b>: <span class="header-val">{chick_in_count:,} 羽</span></span>&nbsp;&nbsp;
-      <span><b>スペア</b>: <span class="header-val">{spare_count:,} 羽</span></span>&nbsp;&nbsp;
-      <span><b>出荷日齢</b>: <span class="header-val">{planned_age} 日</span></span>&nbsp;&nbsp;
-      <span><b>残存羽数</b>: <span class="header-val">{remaining:,} 羽</span></span>
-    </div>"""
-    st.markdown(_header_box_html, unsafe_allow_html=True)
+    st.dataframe(pd.DataFrame([{
+        "タンクNo":        tank_number,
+        "タンク容量(kg)":  tank_capacity,
+        "搬送係数(kg/min)": house_coef,
+        "入雛日":          str(chick_in_date),
+        "入雛羽数":        f"{chick_in_count:,}",
+        "スペア羽数":      f"{spare_count:,}",
+        "出荷日齢":        f"{planned_age}日",
+    }]), use_container_width=True, hide_index=True)
+
 
     # ----------------------------------------------------------
     # 既存の日次記録を取得
