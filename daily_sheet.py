@@ -1012,6 +1012,13 @@ with tab2:
                 o_total = df_sel["order_qty"].sum()
                 st.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
 
+                # 発注一覧表示
+                disp_sel = df_sel[[
+                    "house_name","lot_number","delivery_date","day_age","order_qty","event_notes"
+                ]].copy()
+                disp_sel.columns = ["鶏舎","ロット","納品予定日","日齢","発注量kg","発注内容"]
+                st.dataframe(disp_sel, use_container_width=True, hide_index=True)
+
                 st.divider()
                 obc1, obc2 = st.columns([1, 3])
 
