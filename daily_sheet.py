@@ -930,24 +930,7 @@ with tab2:
     if not o_farm_fhs:
         st.info("育成中の鶏舎がありません")
     else:
-        # 鶏舎情報を先頭に表示
-        fh_info_rows = []
-        for fh in o_farm_fhs:
-            ln_obj = next((ln for ln in lot_numbers if ln["lot_number_id"] == fh.get("lot_number_id")), {})
-            chick_dt = date.fromisoformat(fh["chick_in_date"]) if fh.get("chick_in_date") else None
-            age_now  = (date.today() - chick_dt).days if chick_dt else "-"
-            fh_info_rows.append({
-                "鶏舎":     house_map.get(fh.get("house_id"), ""),
-                "ロット":   ln_obj.get("lot_number", ""),
-                "入雛日":   str(fh.get("chick_in_date", "")),
-                "現在日齢": age_now,
-                "出荷日齢": fh.get("planned_shipment_age_days", ""),
-                "残存羽数": fh.get("current_count", ""),
-            })
         import pandas as pd
-        st.dataframe(pd.DataFrame(fh_info_rows),
-            use_container_width=True, hide_index=True)
-
         # ---- 全予定配送を取得して日付範囲を確定 ----
         o_fh_ids  = [fh["flock_house_id"] for fh in o_farm_fhs]
         o_details = []
@@ -1012,11 +995,10 @@ with tab2:
                 o_total = df_sel["order_qty"].sum()
                 st.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
 
-                # 発注一覧表示
-                disp_sel = df_sel[[
-                    "house_name","lot_number","delivery_date","day_age","order_qty","event_notes"
-                ]].copy()
-                disp_sel.columns = ["鶏舎","ロット","納品予定日","日齢","発注量kg","発注内容"]
+                # 発注一覧表示（納品予定日昇順）
+                disp_sel = df_sel[["delivery_date","house_name","order_qty","event_notes"]].copy()
+                disp_sel.columns = ["納品予定日","鶏舎","発注量kg","発注内容"]
+                disp_sel = disp_sel.sort_values("納品予定日").reset_index(drop=True)
                 st.dataframe(disp_sel, use_container_width=True, hide_index=True)
 
                 st.divider()
