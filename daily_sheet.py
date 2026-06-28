@@ -453,8 +453,8 @@ def get_ross308(age):
 # ----------------------------------------------------------
 # 対象選択
 # ----------------------------------------------------------
-st.title("📋 ブロイラー飼養管理 - 入力・発注予測")
-tab1, tab2 = st.tabs(["📝 日次入力・発注予測", "🚛 発注"])
+st.title("▍ ブロイラー飼養管理 - 入力・発注予測")
+tab1, tab2 = st.tabs(["◈ 日次入力・発注予測", "◉ 発注"])
 
 
 with tab1:
@@ -504,7 +504,7 @@ with tab1:
 
     with c5:
         st.markdown("&nbsp;", unsafe_allow_html=True)  # ラベル分の余白
-        _do_save = st.button("💾 一括保存", type="primary", key="sheet_save", use_container_width=True)
+        _do_save = st.button("▶ 一括保存", type="primary", key="sheet_save", use_container_width=True)
 
     sel_fh    = next(fh for fh in lot_fhs if fh["flock_house_id"] == sel_fh_id)
     sel_house = next((h for h in houses if h["house_id"] == sel_fh["house_id"]), {})
@@ -762,8 +762,8 @@ with tab1:
     # ---- 発注予測シミュレーション ----
     st.markdown("---")
     _fc_h, _fc_btn = st.columns([3, 1])
-    _fc_h.markdown("### 🚛 発注予測")
-    _do_fc_save = _fc_btn.button("📋 予定配送を保存・更新", type="secondary", key="fc_order_save", use_container_width=True)
+    _fc_h.markdown("### ◆ 発注予測")
+    _do_fc_save = _fc_btn.button("▶ 予定配送を保存・更新", type="secondary", key="fc_order_save", use_container_width=True)
     fc_std_qty   = 4000.0   # 配送単位（kg）
     fc_min_alert = 200.0    # 最低残量アラート（kg）
     fc_lead_time = 0
@@ -788,7 +788,7 @@ with tab1:
             adj_dict=adj_dict)
 
         # ---- Step4: 編集可能なシミュレーション表 ----
-        st.markdown("#### 📊 タンク残量シミュレーション（直接編集→自動再計算）")
+        st.markdown("#### ◇ タンク残量シミュレーション")
 
         # 編集用DataFrameを構築
         # 実測残量・調整発注量は編集可能、それ以外は読み取り専用
@@ -970,7 +970,7 @@ with tab1:
 # タブ2: 一括発注（農場単位）
 # ==========================================================
 with tab2:
-    st.markdown("### 🚛 発注")
+    st.markdown("### ◆ 発注")
 
     # ---- 農場選択（先に農場を選んで予定配送の日付範囲を取得） ----
     o_farm    = st.selectbox("農場", list(farm_opts.keys()), key="o_farm")
@@ -1035,7 +1035,7 @@ with tab2:
             o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date")
         with oc4:
             st.markdown("&nbsp;", unsafe_allow_html=True)
-            _do_order_save_top = st.button("💾 発注確定登録", type="primary",
+            _do_order_save_top = st.button("▶ 発注確定登録", type="primary",
                 key="o_save_top", use_container_width=True)
 
         if not o_details:
@@ -1137,7 +1137,7 @@ with tab2:
                 with obc2:
                     # ---- 発注書プレビュー（発注確定後に表示） ----
                     if st.session_state.get("o_order_text"):
-                        st.markdown("#### 📄 発注書プレビュー")
+                        st.markdown("#### ▸ 発注書プレビュー")
                         o_body_text = st.text_area("発注書（編集可）",
                             value=st.session_state.get("o_order_text", ""),
                             height=250, key="o_body")
@@ -1145,9 +1145,9 @@ with tab2:
                         o_body_text = ""
 
                     if st.session_state.get("o_order_id"):
-                        st.markdown("#### 📤 送信")
+                        st.markdown("#### ▸ 送信")
                         send_method = st.radio("送信方法",
-                            ["📧 メール", "🖨️ 印刷"],
+                            ["📧 メール", "▶ 印刷"],
                             horizontal=True, key="o_send_method")
 
                         if send_method == "📧 メール":
@@ -1164,7 +1164,7 @@ with tab2:
                                 o_cc_addr = st.text_input("CC",  value=o_es.get("cc_address",""),  key="o_cc")
                                 o_subject = st.text_input("件名",
                                     value=f"【飼料発注】{o_farm} {o_order_date}", key="o_subject")
-                                if st.button("📧 メール送信", key="o_send_email", type="primary"):
+                                if st.button("▶ メール送信", key="o_send_email", type="primary"):
                                     try:
                                         import smtplib
                                         from email.mime.text import MIMEText
@@ -1246,5 +1246,5 @@ with tab2:
   w.document.close();
   setTimeout(function(){{w.focus();}},300);
 " style="background:#1f77b4;color:white;border:none;padding:10px 24px;border-radius:4px;cursor:pointer;font-size:14px;">
-🖨️ 発注書を印刷プレビュー
+▶ 印刷プレビュー
 </button>""", height=55)
