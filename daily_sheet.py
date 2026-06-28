@@ -461,7 +461,7 @@ def get_ross308(age):
 # 対象選択
 # ----------------------------------------------------------
 st.title("▍ ブロイラー飼養管理 - 入力・発注予測")
-tab1, tab2 = st.tabs(["◈ 日次入力・発注予測", "◉ 発注"])
+tab1, tab2, tab3 = st.tabs(["◈ 記録と予測", "◈ 飼料発注", "◈ 飼育グラフ"])
 
 
 with tab1:
@@ -1255,3 +1255,174 @@ with tab2:
 " style="background:#1f77b4;color:white;border:none;padding:10px 24px;border-radius:4px;cursor:pointer;font-size:14px;">
 ▶ 印刷プレビュー
 </button>""", height=55)
+
+
+# ==========================================================
+# タブ3: 推移グラフ
+# ==========================================================
+with tab3:
+    st.markdown("### ◆ 推移グラフ")
+
+    gc1, gc2, gc3 = st.columns(3)
+    with gc1:
+        g_farm    = st.selectbox("農場", list(farm_opts.keys()), key="g_farm")
+        g_farm_id = farm_opts[g_farm]
+    with gc2:
+        g_lns = [ln for ln in lot_numbers if ln["farm_id"] == g_farm_id]
+        if not g_lns:
+            st.info("ロット番号がありません")
+            st.stop()
+        g_ln_id = st.selectbox("ロット番号",
+            [ln["lot_number_id"] for ln in g_lns],
+            format_func=lambda x: ln_map[x], key="g_ln")
+    with gc3:
+        g_fhs = [fh for fh in flock_houses if fh["lot_number_id"] == g_ln_id]
+        if not g_fhs:
+            st.info("鶏舎がありません")
+            st.stop()
+        g_fh_id = st.selectbox("鶏舎",
+            [fh["flock_house_id"] for fh in g_fhs],
+            format_func=lambda x: house_map.get(
+                next(fh["house_id"] for fh in g_fhs if fh["flock_house_id"] == x), ""),
+            key="g_fh")
+
+    g_recs = supabase.table("daily_records") \
+        .select("*").eq("flock_house_id", g_fh_id) \
+        .order("record_date").execute().data
+
+    if g_recs:
+        g_fh_obj   = next(fh for fh in g_fhs if fh["flock_house_id"] == g_fh_id)
+        g_chick_dt = date.fromisoformat(g_fh_obj["chick_in_date"])
+        df_g       = pd.DataFrame(g_recs)
+        df_g["日齢"] = df_g["record_date"].apply(
+            lambda d: (date.fromisoformat(d) - g_chick_dt).days)
+        df_g["標準採食量_g"] = df_g["日齢"].apply(lambda a: get_ross308(a).get("daily_intake_g"))
+        df_g["標準体重_g"]   = df_g["日齢"].apply(lambda a: get_ross308(a).get("weight_g"))
+
+        g_item = st.selectbox("グラフ項目",
+            ["体重（実績 vs 標準）","採食量（実績 vs 標準）","斃死+淘汰率","温度・湿度"],
+            key="g_item")
+
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.font_manager as fm
+        import os, urllib.request
+
+        # 日本語フォント設定
+        font_path = "/tmp/NotoSansJP.ttf"
+        if not os.path.exists(font_path):
+            try:
+                urllib.request.urlretrieve(
+                    "https://moji.or.jp/wp-content/ipafont/IPAexfont/ipaexg00401.zip",
+                    "/tmp/ipaexg.zip")
+                import zipfile
+                with zipfile.ZipFile("/tmp/ipaexg.zip") as z:
+                    for name in z.namelist():
+                        if name.endswith(".ttf"):
+                            with z.open(name) as src, open(font_path, "wb") as dst:
+                                dst.write(src.read())
+                            break
+            except:
+                font_path = None
+
+        if font_path and os.path.exists(font_path):
+            try:
+                fm.fontManager.addfont(font_path)
+                prop = fm.FontProperties(fname=font_path)
+                plt.rcParams["font.family"] = prop.get_name()
+            except:
+                plt.rcParams["font.family"] = "DejaVu Sans"
+        else:
+            plt.rcParams["font.family"] = "DejaVu Sans"
+
+        x_max   = int(g_fh_obj.get("planned_shipment_age_days") or 56)
+        x_ticks = list(range(0, x_max + 1, 7))
+        std_ages = list(range(0, min(x_max + 1, 57)))
+        std_bw   = [get_ross308(a).get("weight_g")       for a in std_ages]
+        std_fi   = [get_ross308(a).get("daily_intake_g") for a in std_ages]
+        chick_in_total = g_fh_obj["chick_in_count"] or 0
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+
+        if g_item == "体重（実績 vs 標準）":
+            w = df_g[df_g["avg_body_weight"].notna()]
+            ax.plot(w["日齢"], w["avg_body_weight"], "o-",
+                    label="Actual (g)", color="steelblue", linewidth=1.5)
+            ax.plot(std_ages, std_bw, "--",
+                    label="Ross308 Standard (g)", color="orange", alpha=0.8)
+            ax.set_ylabel("Body Weight (g)")
+            ax.set_title("Body Weight - Actual vs Ross308")
+
+        elif g_item == "採食量（実績 vs 標準）":
+            _g_h     = next((h for h in houses if h["house_id"] == g_fh_obj["house_id"]), {})
+            _g_hcoef = float(_g_h.get("feed_transfer_coef") or 0)
+            _g_ratio_map = {b["feed_brand_id"]: float(b.get("transfer_coef_ratio") or 1.0)
+                            for b in feed_brands}
+            cum_loss = 0
+            rem_list = []
+            spare    = g_fh_obj["spare_count"] or 0
+            for _, row in df_g.iterrows():
+                cum_loss += (row["mortality_count"] or 0) + (row["culling_count"] or 0)
+                rem_list.append(max(chick_in_total + spare - cum_loss, 1))
+            df_g["残存羽数"] = rem_list
+            def per_bird(r):
+                if pd.isna(r.get("feed_duration_min")) or _g_hcoef == 0:
+                    return None
+                ratio = _g_ratio_map.get(r.get("feed_brand_id"), 1.0)
+                return round(float(r["feed_duration_min"]) * _g_hcoef * ratio * 1000 / r["残存羽数"], 2)
+            df_g["実績採食量_g/羽"] = df_g.apply(per_bird, axis=1)
+            ax.bar(df_g["日齢"], df_g["実績採食量_g/羽"].fillna(0.0),
+                   label="Actual (g/bird)", color="steelblue", alpha=0.7)
+            ax.plot(std_ages, std_fi, "--",
+                    label="Ross308 Standard (g/bird)", color="orange", linewidth=1.5)
+            ax.set_ylabel("Feed Intake per Bird (g)")
+            ax.set_title("Feed Intake per Bird - Actual vs Ross308")
+
+        elif g_item == "斃死+淘汰率":
+            df_g["斃死淘汰率%"] = (
+                (df_g["mortality_count"].fillna(0) + df_g["culling_count"].fillna(0))
+                / chick_in_total * 100
+            ).round(3)
+            ax.bar(df_g["日齢"], df_g["斃死淘汰率%"], color="tomato", alpha=0.8,
+                   label="Mort+Cull Rate (%)")
+            ax.set_ylabel("Mortality+Culling Rate (%)")
+            ax.set_title("Mortality + Culling Rate (%)")
+
+        elif g_item == "温度・湿度":
+            ax2 = ax.twinx()
+            ax.plot(df_g["日齢"], df_g["house_temp_max"], "r-",
+                    label="House Max (C)", linewidth=1.5)
+            ax.plot(df_g["日齢"], df_g["house_temp_min"], "b-",
+                    label="House Min (C)", linewidth=1.5)
+            # Ross308推奨温度（体重ベース・RH60%）
+            if comfort_temp:
+                comfort_upper = []
+                for age in std_ages:
+                    bw = get_ross308(age).get("weight_g") or 0
+                    closest = min(comfort_temp,
+                        key=lambda r: abs((r["body_weight_g"] or 0) - bw))
+                    comfort_upper.append(closest.get("rh_60pct_temp_c"))
+                ax.plot(std_ages, comfort_upper, "r--", alpha=0.5,
+                        label="Ross308 Comfort Temp (RH60%)", linewidth=1.2)
+            ax2.plot(df_g["日齢"], df_g["house_humidity"], "g-",
+                     label="Humidity (%)", linewidth=1.5, alpha=0.8)
+            ax2.set_ylabel("Humidity (%)", color="green")
+            ax2.tick_params(axis="y", labelcolor="green")
+            ax2.set_ylim(0, 100)
+            ax.set_ylabel("Temperature (C)")
+            ax.set_title("Temperature & Humidity")
+            lines1, labels1 = ax.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=8)
+
+        ax.set_xlabel("Age (days)")
+        ax.set_xlim(0, x_max)
+        ax.set_xticks(x_ticks)
+        ax.grid(True, alpha=0.3)
+        if g_item != "温度・湿度":
+            ax.legend()
+        st.pyplot(fig)
+        plt.close()
+    else:
+        st.info("記録がありません")
