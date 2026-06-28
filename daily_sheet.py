@@ -506,6 +506,11 @@ with tab1:
     sel_house = next((h for h in houses if h["house_id"] == sel_fh["house_id"]), {})
     sel_ln    = next(ln for ln in lot_numbers if ln["lot_number_id"] == sel_ln_id)
 
+    # ---- 上部ボタン行 ----
+    btn1, btn2, _ = st.columns([1, 1, 4])
+    _do_save      = btn1.button("💾 一括保存",          type="primary", key="sheet_save")
+    _do_fc_save   = btn2.button("📋 予定配送を保存・更新", type="secondary", key="fc_order_save")
+
     # ----------------------------------------------------------
     # 上部ヘッダー情報（DB自動取得）
     # ----------------------------------------------------------
@@ -674,10 +679,8 @@ with tab1:
         else:
             st.error(msg_text)
 
-    st.caption(f"合計 {len(df_disp)} 行（日齢0〜{planned_age}日）　入力後「💾 一括保存」を押してください")
 
-    if st.button("💾 一括保存", type="primary", key="sheet_save"):
-        st.write(f"🔍 保存開始: edited行数={len(edited)}, sel_fh_id={sel_fh_id}")
+    if _do_save:
         updated  = 0
         inserted = 0
         skipped  = 0
@@ -888,7 +891,7 @@ with tab1:
 
         # ---- Step8: 予定配送の保存・更新ボタン ----
         if not order_plan.empty:
-            if st.button("💾 予定配送を保存・更新", type="primary", key="fc_order_save"):
+            if _do_fc_save:
                 try:
                     supabase.table("feed_order_details") \
                         .delete() \
@@ -1005,7 +1008,11 @@ with tab2:
                 st.info(f"指定期間（{o_from}〜{o_to}）に予定配送がありません")
             else:
                 o_total = df_sel["order_qty"].sum()
-                st.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
+
+                # 件数・合計とボタンを横並び
+                ob_info, ob_btn = st.columns([3, 1])
+                ob_info.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
+                _do_order_save = ob_btn.button("💾 発注確定登録", type="primary", key="o_save")
 
                 # 発注一覧表示（納品予定日昇順）
                 disp_sel = df_sel[["delivery_date","house_name","order_qty","event_notes","status"]].copy()
@@ -1013,11 +1020,10 @@ with tab2:
                 disp_sel = disp_sel.sort_values("納品予定日").reset_index(drop=True)
                 st.dataframe(disp_sel, use_container_width=True, hide_index=True)
 
-                st.divider()
                 obc1, obc2 = st.columns([1, 3])
 
                 with obc1:
-                    if st.button("💾 発注確定登録", type="primary", key="o_save"):
+                    if _do_order_save:
                         try:
                             res = supabase.table("feed_orders").insert({
                                 "farm_id":         o_farm_id,
