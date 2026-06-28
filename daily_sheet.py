@@ -644,7 +644,7 @@ with tab1:
         use_container_width=True,
         hide_index=True,
         num_rows="fixed",
-        height=25 * 28 + 38,
+        height=12 * 28 + 38,
         column_order=display_cols,
         column_config={
             "日令":       st.column_config.NumberColumn("日令",      disabled=True, width=40),
@@ -821,7 +821,7 @@ with tab1:
             use_container_width=True,
             hide_index=True,
             num_rows="fixed",
-        height=25 * 28 + 38,
+        height=12 * 28 + 38,
             column_config={
                 "日齢":       st.column_config.NumberColumn("日齢",       disabled=True, width=42),
                 "月日":       st.column_config.TextColumn(  "月日",       disabled=True, width=60),
