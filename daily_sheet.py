@@ -623,7 +623,7 @@ with tab1:
         "舎内最高℃","舎内最低℃","湿度%","外気最高℃","外気最低℃",
         "平均体重g",
         "採食時間min","採食量kg",
-        "飼料銘柄",
+        "納品量kg","飼料銘柄",
         "作業日誌",
     ]
 
@@ -661,7 +661,8 @@ with tab1:
             "標準体重g":  st.column_config.NumberColumn("標準体重g", disabled=True, width=70),
             "採食時間min":st.column_config.NumberColumn("採食時間\nmin", step=0.1, format="%.1f", width=65),
             "採食量kg":   st.column_config.NumberColumn("採食量kg",  disabled=True, width=65),
-            "飼料銘柄":   st.column_config.SelectboxColumn("飼料銘柄", options=brand_names, width=100),
+            "納品量kg":   st.column_config.NumberColumn("納品量kg",  disabled=True, width=65),
+            "飼料銘柄":   st.column_config.SelectboxColumn("飼料銘柄", options=brand_names, width=100, disabled=True),
             "作業日誌":   st.column_config.TextColumn(  "作業日誌",  width=150),
         },
         key=f"sheet_editor_{sel_fh_id}"
@@ -897,6 +898,7 @@ with tab1:
         if not order_plan.empty:
             if _do_fc_save:
                 try:
+                    # 1. 予定配送を保存
                     supabase.table("feed_order_details") \
                         .delete() \
                         .eq("flock_house_id", sel_fh_id) \
@@ -918,7 +920,40 @@ with tab1:
                             "pred_tank":      float(r["タンク残量kg"]),
                             "status":         "予定",
                         }).execute()
-                    st.success(f"✅ {len(order_plan)}件の予定配送を保存しました")
+
+                    # 2. 日次入力を同時一括更新（発注予定日の納品量・銘柄を反映）
+                    for _, r in order_plan.iterrows():
+                        try:
+                            dt = r["納品予定日_dt"]
+                            if hasattr(dt, "date"):
+                                dt = dt.date()
+                            _del_date = str(dt)
+                            _qty      = float(r["発注量kg"])
+                            _notes    = str(r.get("発注種別") or "")
+                            _brand_id = next(
+                                (b["feed_brand_id"] for b in feed_brands
+                                 if b.get("brand_name") and b["brand_name"] in _notes), None)
+                            _exists = supabase.table("daily_records") \
+                                .select("record_id") \
+                                .eq("flock_house_id", sel_fh_id) \
+                                .eq("record_date", _del_date).execute().data
+                            if _exists:
+                                supabase.table("daily_records").update({
+                                    "feed_delivery_qty": _qty,
+                                    "feed_brand_id":     _brand_id,
+                                }).eq("record_id", _exists[0]["record_id"]).execute()
+                            else:
+                                supabase.table("daily_records").insert({
+                                    "flock_house_id":    sel_fh_id,
+                                    "record_date":       _del_date,
+                                    "feed_delivery_qty": _qty,
+                                    "feed_brand_id":     _brand_id,
+                                }).execute()
+                        except Exception:
+                            pass
+
+                    st.success(f"✅ {len(order_plan)}件の予定配送を保存・日次入力に反映しました")
+                    st.rerun()
                 except Exception as e:
                     st.error(f"保存エラー: {e}")
 
@@ -1058,6 +1093,37 @@ with tab2:
                                     f"{r['delivery_date']:<12}{str(tank_no):<10}"
                                     f"{r['order_qty']:>8,.0f}kg    {r['event_notes'] or ''}")
                             o_lines += ["-" * 60, f"{'合計':<22}{o_total:>8,.0f}kg", "", "よろしくお願いいたします。", o_farm]
+                            # 発注確定内容を daily_records に反映
+                            for _, dr in df_sel.iterrows():
+                                try:
+                                    _del_date = str(dr["delivery_date"])
+                                    _fh_id    = int(dr["flock_house_id"])
+                                    _qty      = float(dr["order_qty"])
+                                    _notes    = str(dr.get("event_notes") or "")
+                                    # 銘柄名からfeed_brand_idを取得
+                                    _brand_id = next(
+                                        (b["feed_brand_id"] for b in feed_brands
+                                         if b["brand_name"] in _notes), None)
+                                    # daily_recordsに該当レコードがあれば更新、なければ挿入
+                                    _exists = supabase.table("daily_records") \
+                                        .select("record_id") \
+                                        .eq("flock_house_id", _fh_id) \
+                                        .eq("record_date", _del_date).execute().data
+                                    if _exists:
+                                        supabase.table("daily_records").update({
+                                            "feed_delivery_qty": _qty,
+                                            "feed_brand_id":     _brand_id,
+                                        }).eq("record_id", _exists[0]["record_id"]).execute()
+                                    else:
+                                        supabase.table("daily_records").insert({
+                                            "flock_house_id":    _fh_id,
+                                            "record_date":       _del_date,
+                                            "feed_delivery_qty": _qty,
+                                            "feed_brand_id":     _brand_id,
+                                        }).execute()
+                                except Exception as _e:
+                                    pass  # 個別エラーはスキップ
+
                             o_order_text_new = "\n".join(o_lines)
                             st.session_state["o_order_id"]   = o_order_id
                             st.session_state["o_order_text"] = o_order_text_new
