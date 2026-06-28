@@ -935,7 +935,7 @@ with tab1:
                                 (b["feed_brand_id"] for b in feed_brands
                                  if b.get("brand_name") and b["brand_name"] in _notes), None)
                             _exists = supabase.table("daily_records") \
-                                .select("record_id") \
+                                .select("daily_record_id") \
                                 .eq("flock_house_id", sel_fh_id) \
                                 .eq("record_date", _del_date).execute().data
                             if _exists:
@@ -943,7 +943,7 @@ with tab1:
                                     "feed_delivery_qty": _qty,
                                     "feed_brand_id":     _brand_id,
                                     "feed_order_notes":  _notes,
-                                }).eq("record_id", _exists[0]["record_id"]).execute()
+                                }).eq("daily_record_id", _exists[0]["daily_record_id"]).execute()
                             else:
                                 supabase.table("daily_records").insert({
                                     "flock_house_id":    sel_fh_id,
@@ -1109,14 +1109,14 @@ with tab2:
                                          if b["brand_name"] in _notes), None)
                                     # daily_recordsに該当レコードがあれば更新、なければ挿入
                                     _exists = supabase.table("daily_records") \
-                                        .select("record_id") \
+                                        .select("daily_record_id") \
                                         .eq("flock_house_id", _fh_id) \
                                         .eq("record_date", _del_date).execute().data
                                     if _exists:
                                         supabase.table("daily_records").update({
                                             "feed_delivery_qty": _qty,
                                             "feed_brand_id":     _brand_id,
-                                        }).eq("record_id", _exists[0]["record_id"]).execute()
+                                        }).eq("daily_record_id", _exists[0]["daily_record_id"]).execute()
                                     else:
                                         supabase.table("daily_records").insert({
                                             "flock_house_id":    _fh_id,
