@@ -607,6 +607,7 @@ with tab1:
             "標準採食g":   ross.get("daily_intake_g"),
             "納品量kg":    rec.get("feed_delivery_qty"),
             "飼料銘柄":    brand_nm,
+            "飼料発注":    rec.get("feed_order_notes") or "",
             "作業日誌":    rec.get("work_log") or "",
             "担当者":      worker_map.get(rec.get("worker_id"), "") if rec.get("worker_id") else "",
             "_date":       str(rec_date),
@@ -623,7 +624,7 @@ with tab1:
         "舎内最高℃","舎内最低℃","湿度%","外気最高℃","外気最低℃",
         "平均体重g",
         "採食時間min","採食量kg",
-        "納品量kg","飼料銘柄",
+        "納品量kg","飼料発注",
         "作業日誌",
     ]
 
@@ -662,7 +663,7 @@ with tab1:
             "採食時間min":st.column_config.NumberColumn("採食時間\nmin", step=0.1, format="%.1f", width=65),
             "採食量kg":   st.column_config.NumberColumn("採食量kg",  disabled=True, width=65),
             "納品量kg":   st.column_config.NumberColumn("納品量kg",  disabled=True, width=65),
-            "飼料銘柄":   st.column_config.SelectboxColumn("飼料銘柄", options=brand_names, width=100, disabled=True),
+            "飼料発注":   st.column_config.TextColumn(  "飼料発注",  disabled=True, width=150),
             "作業日誌":   st.column_config.TextColumn(  "作業日誌",  width=150),
         },
         key=f"sheet_editor_{sel_fh_id}"
@@ -941,6 +942,7 @@ with tab1:
                                 supabase.table("daily_records").update({
                                     "feed_delivery_qty": _qty,
                                     "feed_brand_id":     _brand_id,
+                                    "feed_order_notes":  _notes,
                                 }).eq("record_id", _exists[0]["record_id"]).execute()
                             else:
                                 supabase.table("daily_records").insert({
@@ -948,6 +950,7 @@ with tab1:
                                     "record_date":       _del_date,
                                     "feed_delivery_qty": _qty,
                                     "feed_brand_id":     _brand_id,
+                                    "feed_order_notes":  _notes,
                                 }).execute()
                         except Exception:
                             pass
