@@ -366,6 +366,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     day0_feed    = df.loc[0, "act_feed_kg"]
     evening_pred = first_qty - day0_feed
 
+    _debug_fc = []  # デバッグ用
     for d in range(1, len(df)):
         daily_feed   = df.loc[d, "act_feed_kg"]
         r            = rec_by_day.get(d, {})
@@ -422,28 +423,24 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         # ── 優先4: 予測発注計算（タンク残量ベース） ──
         else:
             oq = 0.0
+            _d_idx      = day_to_idx.get(d, d)
+            future_need = float(actual_feed[_d_idx:].sum())
+            cur_tank    = pred_tank[d]
+            _debug_fc.append(f"d={d} tank={cur_tank:.0f} need={future_need:.0f} alert={min_alert}")
             if pred_tank[d] <= min_alert:
-                # 出荷日までの残り採食量合計（日齢dのインデックスから）
-                _d_idx      = day_to_idx.get(d, d)
-                future_need = float(actual_feed[_d_idx:].sum())
-                cur_tank    = pred_tank[d]
-                # 今回の発注後に出荷日まで持つか判定
-                # 持たない → 配送単位で発注
-                # 持つ → 端数発注（最終）
                 if future_need - cur_tank <= 0:
                     pass  # 発注不要
                 elif future_need - (cur_tank + std_qty) <= 0:
-                    # 1配送単位で出荷日まで足りる → 端数のみ
                     oq = round((future_need - cur_tank) / 100) * 100
                     oq = max(oq, 100)
                     event_notes[d] = f"最終: {get_order_note_for_day(d, oq)}"
                 else:
-                    # 配送単位で発注
                     oq = std_qty
                     event_notes[d] = get_order_note_for_day(d, oq)
                 delivery_kg[d] = oq
             evening_pred = pred_tank[d] + delivery_kg[d] - daily_feed
 
+    df["_debug_fc"]       = [_debug_fc] + [None] * (len(df) - 1)
     df["pred_tank"]       = pred_tank
     df["real_tank"]       = real_tank
     df["delivery_kg"]     = delivery_kg
@@ -794,6 +791,14 @@ with tab1:
             sel_fh, fc_recs, house_coef,
             fc_std_qty, fc_min_alert, fc_lead_time,
             adj_dict=adj_dict)
+
+        # ---- デバッグ ----
+        with st.expander("🔍 発注デバッグ", expanded=False):
+            st.write(f"first_qty={first_qty}, _pre_total_need={_pre_total_need:.0f}, _pre_delivered={_pre_delivered[0]:.0f}")
+            st.write(f"min_alert={fc_min_alert}, std_qty={fc_std_qty}")
+            _dbg = df_fc[df_fc["delivery_kg"] == 0][["day","pred_tank","delivery_kg","event_notes"]].head(20)
+            st.write("発注なし行（最初20件）:")
+            st.dataframe(_dbg.round(1), hide_index=True)
 
         # ---- Step4: 編集可能なシミュレーション表 ----
         st.markdown("#### ◇ タンク残量シミュレーション")
