@@ -451,165 +451,165 @@ st.title("📋 ブロイラー飼養管理 - 入力・発注予測")
 tab1, tab2 = st.tabs(["📝 日次入力・発注予測", "🚛 発注"])
 
 
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    sel_farm    = st.selectbox("農場", list(farm_opts.keys()), key="s_farm")
-    sel_farm_id = farm_opts[sel_farm]
-with c2:
-    farm_lns = [ln for ln in lot_numbers if ln["farm_id"] == sel_farm_id and ln["is_active"]]
-    if not farm_lns:
-        st.warning("ロット番号を登録してください")
-        st.stop()
-    sel_ln_id = st.selectbox("ロット番号",
-        [ln["lot_number_id"] for ln in farm_lns],
-        format_func=lambda x: ln_map[x], key="s_ln")
-with c3:
-    lot_fhs = [fh for fh in flock_houses if fh["lot_number_id"] == sel_ln_id]
-    if not lot_fhs:
-        st.warning("鶏舎割当を登録してください")
-        st.stop()
-    sel_fh_id = st.selectbox("鶏舎",
-        [fh["flock_house_id"] for fh in lot_fhs],
-        format_func=lambda x: house_map.get(
-            next(fh["house_id"] for fh in lot_fhs if fh["flock_house_id"] == x), ""),
-        key="s_fh")
-with c4:
-    # 入雛日：選択した鶏舎に紐づく入雛日を表示（同一鶏舎で複数回転ある場合も対応）
-    sel_fh_tmp    = next(fh for fh in lot_fhs if fh["flock_house_id"] == sel_fh_id)
-    default_chick = sel_fh_tmp.get("chick_in_date", "")
-    # 同一ロット・同一鶏舎の複数入雛日がある場合に備えてリスト化
-    chick_dates = sorted(set(
-        fh["chick_in_date"] for fh in lot_fhs
-        if fh["flock_house_id"] == sel_fh_id
-        or (fh["house_id"] == sel_fh_tmp["house_id"] and fh["lot_number_id"] == sel_ln_id)
-    ))
-    sel_chick_date = st.selectbox("入雛日",
-        chick_dates,
-        index=chick_dates.index(default_chick) if default_chick in chick_dates else 0,
-        key="s_chick_date")
-    # 入雛日で絞り込んだflock_houseを確定
-    sel_fh_id = next(
-        (fh["flock_house_id"] for fh in lot_fhs
-         if fh["flock_house_id"] == sel_fh_id
-         and fh["chick_in_date"] == sel_chick_date),
-        sel_fh_id
-    )
-
-sel_fh    = next(fh for fh in lot_fhs if fh["flock_house_id"] == sel_fh_id)
-sel_house = next((h for h in houses if h["house_id"] == sel_fh["house_id"]), {})
-sel_ln    = next(ln for ln in lot_numbers if ln["lot_number_id"] == sel_ln_id)
-
-# ----------------------------------------------------------
-# 上部ヘッダー情報（DB自動取得）
-# ----------------------------------------------------------
-chick_in_date   = date.fromisoformat(sel_fh["chick_in_date"])
-chick_in_count  = sel_fh["chick_in_count"] or 0
-spare_count     = sel_fh["spare_count"]    or 0
-planned_age     = sel_fh["planned_shipment_age_days"] or 56
-today_age       = (date.today() - chick_in_date).days
-house_coef      = float(sel_house.get("feed_transfer_coef") or 0)
-tank_capacity   = sel_house.get("tank_capacity") or "-"
-tank_number     = sel_house.get("tank_number")   or "-"
-
-# 残存羽数計算
-all_recs = supabase.table("daily_records") \
-    .select("mortality_count,culling_count") \
-    .eq("flock_house_id", sel_fh_id).execute().data
-total_mort = sum(r["mortality_count"] or 0 for r in all_recs)
-total_cull = sum(r["culling_count"]   or 0 for r in all_recs)
-remaining  = chick_in_count + spare_count - total_mort - total_cull
-
-_header_box_html = f"""<div class="header-box">
-  <span><b>農場</b>: <span class="header-val">{sel_farm}</span></span>&nbsp;&nbsp;
-  <span><b>ロット</b>: <span class="header-val">{sel_ln['lot_number']}</span></span>&nbsp;&nbsp;
-  <span><b>鶏舎</b>: <span class="header-val">{house_map.get(sel_fh['house_id'],'')}</span></span>&nbsp;&nbsp;
-  <span><b>タンクNo</b>: <span class="header-val">{tank_number}</span></span>&nbsp;&nbsp;
-  <span><b>タンク容量</b>: <span class="header-val">{tank_capacity} kg</span></span>&nbsp;&nbsp;
-  <span><b>搬送係数</b>: <span class="header-val">{house_coef} kg/min</span></span>
-  <br>
-  <span><b>入雛日</b>: <span class="header-val">{chick_in_date}</span></span>&nbsp;&nbsp;
-  <span><b>入雛羽数</b>: <span class="header-val">{chick_in_count:,} 羽</span></span>&nbsp;&nbsp;
-  <span><b>スペア</b>: <span class="header-val">{spare_count:,} 羽</span></span>&nbsp;&nbsp;
-  <span><b>出荷日齢</b>: <span class="header-val">{planned_age} 日</span></span>&nbsp;&nbsp;
-  <span><b>残存羽数</b>: <span class="header-val">{remaining:,} 羽</span></span>
-</div>"""
-st.markdown(_header_box_html, unsafe_allow_html=True)
-
-# ----------------------------------------------------------
-# 既存の日次記録を取得
-# ----------------------------------------------------------
-existing_recs = supabase.table("daily_records") \
-    .select("*") \
-    .eq("flock_house_id", sel_fh_id) \
-    .order("record_date").execute().data
-
-rec_by_date = {r["record_date"]: r for r in existing_recs}
-
-# ----------------------------------------------------------
-# 全日齢分のDataFrameを構築（日齢0〜出荷日齢）
-# ----------------------------------------------------------
-brand_names  = [""] + list(brand_opts.keys())
-worker_names = [""] + list(worker_opts.keys())
-
-rows = []
-cum_mort = 0
-cum_cull = 0
-
-for age in range(0, planned_age + 1):
-    rec_date = chick_in_date + timedelta(days=age)
-    rec      = rec_by_date.get(str(rec_date), {})
-    ross     = get_ross308(age)
-
-    mort     = rec.get("mortality_count") or 0
-    cull     = rec.get("culling_count")   or 0
-    cum_mort += mort
-    cum_cull += cull
-    total_loss   = cum_mort + cum_cull
-    remain_count = chick_in_count + spare_count - total_loss
-
-    # 採食量計算
-    duration = rec.get("feed_duration_min")
-    brand_id = rec.get("feed_brand_id")
-    brand_nm = brand_map.get(brand_id, "") if brand_id else ""
-    brand_obj = next((b for b in feed_brands if b["feed_brand_id"] == brand_id), {}) if brand_id else {}
-    ratio    = float(brand_obj.get("transfer_coef_ratio") or 1.0)
-    if duration and house_coef > 0:
-        intake_kg = round(float(duration) * house_coef * ratio, 2)
-        coef_pct  = round(ratio * 100, 1)
-    else:
-        intake_kg = None
-        coef_pct  = None
-
-    # タンク残量（今後計算予定・現時点は直接入力）
-    rows.append({
-        "日令":        age,
-        "月日":        rec_date.strftime("%m/%d"),
-        "斃死":        mort if rec else None,
-        "淘汰":        cull if rec else None,
-        "合計":        total_loss,      # 入雛日からの累計（斃死+淘汰）
-        "残羽数":      remain_count,    # 入雛羽数+スペア−累計損耗
-        "舎内最高℃":  rec.get("house_temp_max"),
-        "舎内最低℃":  rec.get("house_temp_min"),
-        "湿度%":       rec.get("house_humidity"),
-        "外気最高℃":  rec.get("outside_temp_max"),
-        "外気最低℃":  rec.get("outside_temp_min"),
-        "平均体重g":   rec.get("avg_body_weight"),
-        "標準体重g":   ross.get("weight_g"),
-        "採食時間min": duration,
-        "採食量kg":    intake_kg,
-        "採食係数%":   coef_pct,
-        "標準採食g":   ross.get("daily_intake_g"),
-        "納品量kg":    rec.get("feed_delivery_qty"),
-        "飼料銘柄":    brand_nm,
-        "作業日誌":    rec.get("work_log") or "",
-        "担当者":      worker_map.get(rec.get("worker_id"), "") if rec.get("worker_id") else "",
-        "_date":       str(rec_date),
-        "_id":         rec.get("daily_record_id"),
-    })
-
-df_all = pd.DataFrame(rows)
-
 with tab1:
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        sel_farm    = st.selectbox("農場", list(farm_opts.keys()), key="s_farm")
+        sel_farm_id = farm_opts[sel_farm]
+    with c2:
+        farm_lns = [ln for ln in lot_numbers if ln["farm_id"] == sel_farm_id and ln["is_active"]]
+        if not farm_lns:
+            st.warning("ロット番号を登録してください")
+            st.stop()
+        sel_ln_id = st.selectbox("ロット番号",
+            [ln["lot_number_id"] for ln in farm_lns],
+            format_func=lambda x: ln_map[x], key="s_ln")
+    with c3:
+        lot_fhs = [fh for fh in flock_houses if fh["lot_number_id"] == sel_ln_id]
+        if not lot_fhs:
+            st.warning("鶏舎割当を登録してください")
+            st.stop()
+        sel_fh_id = st.selectbox("鶏舎",
+            [fh["flock_house_id"] for fh in lot_fhs],
+            format_func=lambda x: house_map.get(
+                next(fh["house_id"] for fh in lot_fhs if fh["flock_house_id"] == x), ""),
+            key="s_fh")
+    with c4:
+        # 入雛日：選択した鶏舎に紐づく入雛日を表示（同一鶏舎で複数回転ある場合も対応）
+        sel_fh_tmp    = next(fh for fh in lot_fhs if fh["flock_house_id"] == sel_fh_id)
+        default_chick = sel_fh_tmp.get("chick_in_date", "")
+        # 同一ロット・同一鶏舎の複数入雛日がある場合に備えてリスト化
+        chick_dates = sorted(set(
+            fh["chick_in_date"] for fh in lot_fhs
+            if fh["flock_house_id"] == sel_fh_id
+            or (fh["house_id"] == sel_fh_tmp["house_id"] and fh["lot_number_id"] == sel_ln_id)
+        ))
+        sel_chick_date = st.selectbox("入雛日",
+            chick_dates,
+            index=chick_dates.index(default_chick) if default_chick in chick_dates else 0,
+            key="s_chick_date")
+        # 入雛日で絞り込んだflock_houseを確定
+        sel_fh_id = next(
+            (fh["flock_house_id"] for fh in lot_fhs
+             if fh["flock_house_id"] == sel_fh_id
+             and fh["chick_in_date"] == sel_chick_date),
+            sel_fh_id
+        )
+
+    sel_fh    = next(fh for fh in lot_fhs if fh["flock_house_id"] == sel_fh_id)
+    sel_house = next((h for h in houses if h["house_id"] == sel_fh["house_id"]), {})
+    sel_ln    = next(ln for ln in lot_numbers if ln["lot_number_id"] == sel_ln_id)
+
+    # ----------------------------------------------------------
+    # 上部ヘッダー情報（DB自動取得）
+    # ----------------------------------------------------------
+    chick_in_date   = date.fromisoformat(sel_fh["chick_in_date"])
+    chick_in_count  = sel_fh["chick_in_count"] or 0
+    spare_count     = sel_fh["spare_count"]    or 0
+    planned_age     = sel_fh["planned_shipment_age_days"] or 56
+    today_age       = (date.today() - chick_in_date).days
+    house_coef      = float(sel_house.get("feed_transfer_coef") or 0)
+    tank_capacity   = sel_house.get("tank_capacity") or "-"
+    tank_number     = sel_house.get("tank_number")   or "-"
+
+    # 残存羽数計算
+    all_recs = supabase.table("daily_records") \
+        .select("mortality_count,culling_count") \
+        .eq("flock_house_id", sel_fh_id).execute().data
+    total_mort = sum(r["mortality_count"] or 0 for r in all_recs)
+    total_cull = sum(r["culling_count"]   or 0 for r in all_recs)
+    remaining  = chick_in_count + spare_count - total_mort - total_cull
+
+    _header_box_html = f"""<div class="header-box">
+      <span><b>農場</b>: <span class="header-val">{sel_farm}</span></span>&nbsp;&nbsp;
+      <span><b>ロット</b>: <span class="header-val">{sel_ln['lot_number']}</span></span>&nbsp;&nbsp;
+      <span><b>鶏舎</b>: <span class="header-val">{house_map.get(sel_fh['house_id'],'')}</span></span>&nbsp;&nbsp;
+      <span><b>タンクNo</b>: <span class="header-val">{tank_number}</span></span>&nbsp;&nbsp;
+      <span><b>タンク容量</b>: <span class="header-val">{tank_capacity} kg</span></span>&nbsp;&nbsp;
+      <span><b>搬送係数</b>: <span class="header-val">{house_coef} kg/min</span></span>
+      <br>
+      <span><b>入雛日</b>: <span class="header-val">{chick_in_date}</span></span>&nbsp;&nbsp;
+      <span><b>入雛羽数</b>: <span class="header-val">{chick_in_count:,} 羽</span></span>&nbsp;&nbsp;
+      <span><b>スペア</b>: <span class="header-val">{spare_count:,} 羽</span></span>&nbsp;&nbsp;
+      <span><b>出荷日齢</b>: <span class="header-val">{planned_age} 日</span></span>&nbsp;&nbsp;
+      <span><b>残存羽数</b>: <span class="header-val">{remaining:,} 羽</span></span>
+    </div>"""
+    st.markdown(_header_box_html, unsafe_allow_html=True)
+
+    # ----------------------------------------------------------
+    # 既存の日次記録を取得
+    # ----------------------------------------------------------
+    existing_recs = supabase.table("daily_records") \
+        .select("*") \
+        .eq("flock_house_id", sel_fh_id) \
+        .order("record_date").execute().data
+
+    rec_by_date = {r["record_date"]: r for r in existing_recs}
+
+    # ----------------------------------------------------------
+    # 全日齢分のDataFrameを構築（日齢0〜出荷日齢）
+    # ----------------------------------------------------------
+    brand_names  = [""] + list(brand_opts.keys())
+    worker_names = [""] + list(worker_opts.keys())
+
+    rows = []
+    cum_mort = 0
+    cum_cull = 0
+
+    for age in range(0, planned_age + 1):
+        rec_date = chick_in_date + timedelta(days=age)
+        rec      = rec_by_date.get(str(rec_date), {})
+        ross     = get_ross308(age)
+
+        mort     = rec.get("mortality_count") or 0
+        cull     = rec.get("culling_count")   or 0
+        cum_mort += mort
+        cum_cull += cull
+        total_loss   = cum_mort + cum_cull
+        remain_count = chick_in_count + spare_count - total_loss
+
+        # 採食量計算
+        duration = rec.get("feed_duration_min")
+        brand_id = rec.get("feed_brand_id")
+        brand_nm = brand_map.get(brand_id, "") if brand_id else ""
+        brand_obj = next((b for b in feed_brands if b["feed_brand_id"] == brand_id), {}) if brand_id else {}
+        ratio    = float(brand_obj.get("transfer_coef_ratio") or 1.0)
+        if duration and house_coef > 0:
+            intake_kg = round(float(duration) * house_coef * ratio, 2)
+            coef_pct  = round(ratio * 100, 1)
+        else:
+            intake_kg = None
+            coef_pct  = None
+
+        # タンク残量（今後計算予定・現時点は直接入力）
+        rows.append({
+            "日令":        age,
+            "月日":        rec_date.strftime("%m/%d"),
+            "斃死":        mort if rec else None,
+            "淘汰":        cull if rec else None,
+            "合計":        total_loss,      # 入雛日からの累計（斃死+淘汰）
+            "残羽数":      remain_count,    # 入雛羽数+スペア−累計損耗
+            "舎内最高℃":  rec.get("house_temp_max"),
+            "舎内最低℃":  rec.get("house_temp_min"),
+            "湿度%":       rec.get("house_humidity"),
+            "外気最高℃":  rec.get("outside_temp_max"),
+            "外気最低℃":  rec.get("outside_temp_min"),
+            "平均体重g":   rec.get("avg_body_weight"),
+            "標準体重g":   ross.get("weight_g"),
+            "採食時間min": duration,
+            "採食量kg":    intake_kg,
+            "採食係数%":   coef_pct,
+            "標準採食g":   ross.get("daily_intake_g"),
+            "納品量kg":    rec.get("feed_delivery_qty"),
+            "飼料銘柄":    brand_nm,
+            "作業日誌":    rec.get("work_log") or "",
+            "担当者":      worker_map.get(rec.get("worker_id"), "") if rec.get("worker_id") else "",
+            "_date":       str(rec_date),
+            "_id":         rec.get("daily_record_id"),
+        })
+
+    df_all = pd.DataFrame(rows)
+
     # ----------------------------------------------------------
     # ----------------------------------------------------------
     display_cols = [
@@ -904,35 +904,34 @@ with tab1:
             order_plan["タンク残量kg"]  = order_plan["pred_tank"].round(0)
             order_plan["採食累計kg"]    = order_plan["cum_feed_kg"].round(0)
 
-        # ---- Step8: シミュレーション変更時に予定配送を自動保存 ----
-        _save_key     = f"saved_plan_{sel_fh_id}"
-        _current_plan = str(order_plan.to_dict() if not order_plan.empty else {})
-        if st.session_state.get(_save_key) != _current_plan and not order_plan.empty:
-            try:
-                supabase.table("feed_order_details") \
-                    .delete() \
-                    .eq("flock_house_id", sel_fh_id) \
-                    .is_("order_id", "null") \
-                    .execute()
-                for _, r in order_plan.iterrows():
-                    dt = r["納品予定日_dt"]
-                    if hasattr(dt, "date"):
-                        dt = dt.date()
-                    supabase.table("feed_order_details").insert({
-                        "order_id":       None,
-                        "flock_house_id": sel_fh_id,
-                        "feed_brand_id":  None,
-                        "order_qty":      float(r["発注量kg"]),
-                        "tank_remaining": float(r["タンク残量kg"]),
-                        "delivery_date":  str(dt),
-                        "day_age":        int(r["日齢"]),
-                        "event_notes":    str(r["発注種別"]),
-                        "pred_tank":      float(r["タンク残量kg"]),
-                        "status":         "予定",
-                    }).execute()
-                st.session_state[_save_key] = _current_plan
-            except Exception as e:
-                st.warning(f"予定配送の自動保存に失敗: {e}")
+        # ---- Step8: 予定配送の保存・更新ボタン ----
+        if not order_plan.empty:
+            if st.button("💾 予定配送を保存・更新", type="primary", key="fc_order_save"):
+                try:
+                    supabase.table("feed_order_details") \
+                        .delete() \
+                        .eq("flock_house_id", sel_fh_id) \
+                        .is_("order_id", "null") \
+                        .execute()
+                    for _, r in order_plan.iterrows():
+                        dt = r["納品予定日_dt"]
+                        if hasattr(dt, "date"):
+                            dt = dt.date()
+                        supabase.table("feed_order_details").insert({
+                            "order_id":       None,
+                            "flock_house_id": sel_fh_id,
+                            "feed_brand_id":  None,
+                            "order_qty":      float(r["発注量kg"]),
+                            "tank_remaining": float(r["タンク残量kg"]),
+                            "delivery_date":  str(dt),
+                            "day_age":        int(r["日齢"]),
+                            "event_notes":    str(r["発注種別"]),
+                            "pred_tank":      float(r["タンク残量kg"]),
+                            "status":         "予定",
+                        }).execute()
+                    st.success(f"✅ {len(order_plan)}件の予定配送を保存しました")
+                except Exception as e:
+                    st.error(f"保存エラー: {e}")
 
 
     except Exception as e:
@@ -1110,4 +1109,3 @@ with tab2:
                                 placeholder="例: 0837-XX-XXXX")
                             st.caption("上の発注書テキストをコピーしてFAXソフトに貼り付けてください")
                             st.code(o_body_text, language=None)
-
