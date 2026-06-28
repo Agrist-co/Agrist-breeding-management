@@ -677,6 +677,7 @@ with tab1:
     st.caption(f"合計 {len(df_disp)} 行（日齢0〜{planned_age}日）　入力後「💾 一括保存」を押してください")
 
     if st.button("💾 一括保存", type="primary", key="sheet_save"):
+        st.write(f"🔍 保存開始: edited行数={len(edited)}, sel_fh_id={sel_fh_id}")
         updated  = 0
         inserted = 0
         skipped  = 0
@@ -699,6 +700,7 @@ with tab1:
             if not has_data:
                 skipped += 1
                 continue
+            st.write(f"保存対象: 日齢{orig['日令']} date={rec_date} 斃死={row.get('斃死')} 採食={row.get('採食時間min')}")
 
             # 銘柄補正率
             brand_nm = row.get("飼料銘柄") or ""
@@ -718,7 +720,7 @@ with tab1:
                 "outside_temp_min":  float(row["外気最低℃"]) if pd.notna(row["外気最低℃"]) else None,
                 "avg_body_weight":   float(row["平均体重g"])  if pd.notna(row["平均体重g"])  and float(row["平均体重g"] or 0) > 0 else None,
                 "feed_duration_min": float(row["採食時間min"]) if pd.notna(row["採食時間min"]) and float(row["採食時間min"] or 0) > 0 else None,
-                "feed_delivery_qty": float(row["納品量kg"])   if pd.notna(row["納品量kg"])   and float(row["納品量kg"]  or 0) > 0 else None,
+                "feed_delivery_qty": None,  # 納品量は発注予測から管理
                 "feed_brand_id":     brand_id,
                 "work_log":          str(row["作業日誌"]) if pd.notna(row.get("作業日誌")) and row["作業日誌"] else None,
                 "worker_id":         worker_opts.get(row["担当者"]) if pd.notna(row.get("担当者")) and row["担当者"] else None,
@@ -742,6 +744,8 @@ with tab1:
             if updated  > 0: msg.append(f"更新 {updated}件")
             if inserted > 0: msg.append(f"新規 {inserted}件")
             if skipped  > 0: msg.append(f"未入力スキップ {skipped}件")
+            if not msg:
+                msg.append("変更なし（入力データが検出されませんでした）")
             st.session_state["sheet_msg"] = ("success", f"✅ {' / '.join(msg)}")
         st.rerun()
 
@@ -963,12 +967,15 @@ with tab2:
             _max_date = date.today() + timedelta(days=14)
 
         # ---- 期間・発注日選択 ----
-        # セッション初期化（農場が変わったらリセット）
-        _farm_change_key = f"o_farm_prev"
+        # セッション初期化（農場が変わったらリセット、発注IDは保持）
+        _farm_change_key = "o_farm_prev"
         if st.session_state.get(_farm_change_key) != o_farm_id:
             st.session_state["o_from_val"] = _min_date
             st.session_state["o_to_val"]   = _max_date
             st.session_state[_farm_change_key] = o_farm_id
+            # 農場変更時のみ発注IDをリセット
+            st.session_state.pop("o_order_id", None)
+            st.session_state.pop("o_order_text", None)
 
         oc1, oc2, oc3 = st.columns(3)
         with oc1:
