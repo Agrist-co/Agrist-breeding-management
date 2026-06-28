@@ -551,7 +551,7 @@ with tab1:
     cum_mort = 0
     cum_cull = 0
 
-    for age in range(0, planned_age + 1):
+    for age in range(0, planned_age):  # 出荷日齢は含まない
         rec_date = chick_in_date + timedelta(days=age)
         rec      = rec_by_date.get(str(rec_date), {})
         ross     = get_ross308(age)
@@ -609,45 +609,40 @@ with tab1:
     # ----------------------------------------------------------
     display_cols = [
         "日令","月日",
-        "斃死","淘汰","合計","残羽数",
+        "斃死","淘汰","合計",
         "舎内最高℃","舎内最低℃","湿度%","外気最高℃","外気最低℃",
         "平均体重g","標準体重g",
-        "採食時間min","採食量kg","採食係数%","標準採食g",
-        "納品量kg","飼料銘柄",
-        "作業日誌","担当者",
+        "採食時間min","採食量kg",
+        "飼料銘柄",
+        "作業日誌",
     ]
 
     df_disp = df_all[display_cols].copy()
 
-    # 今日の行をハイライト（スタイリングは data_editor では非対応のため目印列で代用）
     edited = st.data_editor(
         df_disp,
         use_container_width=True,
         hide_index=True,
         num_rows="fixed",
-        height=57 * 35 + 38,
+        height=planned_age * 28 + 38,
+        column_order=display_cols,
         column_config={
-            "日令":       st.column_config.NumberColumn("日令",    disabled=True, width=40),
-            "月日":       st.column_config.TextColumn(  "月日",    disabled=True, width=55),
-            "斃死":       st.column_config.NumberColumn("斃死",    min_value=0, step=1, width=50),
-            "淘汰":       st.column_config.NumberColumn("淘汰",    min_value=0, step=1, width=50),
-            "合計":       st.column_config.NumberColumn("合計",    disabled=True, width=50),
-            "残羽数":     st.column_config.NumberColumn("残羽数",  disabled=True, width=65),
+            "日令":       st.column_config.NumberColumn("日令",      disabled=True, width=40),
+            "月日":       st.column_config.TextColumn(  "月日",      disabled=True, width=55),
+            "斃死":       st.column_config.NumberColumn("斃死",      min_value=0, step=1, width=50),
+            "淘汰":       st.column_config.NumberColumn("淘汰",      min_value=0, step=1, width=50),
+            "合計":       st.column_config.NumberColumn("合計",      disabled=True, width=50),
             "舎内最高℃": st.column_config.NumberColumn("舎内最高℃", step=0.1, width=70),
             "舎内最低℃": st.column_config.NumberColumn("舎内最低℃", step=0.1, width=70),
-            "湿度%":      st.column_config.NumberColumn("湿度%",   min_value=0.0, max_value=100.0, step=1.0, width=55),
+            "湿度%":      st.column_config.NumberColumn("湿度%",     min_value=0.0, max_value=100.0, step=1.0, width=55),
             "外気最高℃": st.column_config.NumberColumn("外気最高℃", step=0.1, width=70),
             "外気最低℃": st.column_config.NumberColumn("外気最低℃", step=0.1, width=70),
             "平均体重g":  st.column_config.NumberColumn("平均体重g", step=1.0, width=70),
             "標準体重g":  st.column_config.NumberColumn("標準体重g", disabled=True, width=70),
             "採食時間min":st.column_config.NumberColumn("採食時間\nmin", step=1.0, width=65),
-            "採食量kg":   st.column_config.NumberColumn("採食量kg", disabled=True, width=65),
-            "採食係数%":  st.column_config.NumberColumn("採食係数%", disabled=True, width=65),
-            "標準採食g":  st.column_config.NumberColumn("標準採食g", disabled=True, width=65),
-            "納品量kg":   st.column_config.NumberColumn("納品量kg", step=100.0, width=65),
+            "採食量kg":   st.column_config.NumberColumn("採食量kg",  disabled=True, width=65),
             "飼料銘柄":   st.column_config.SelectboxColumn("飼料銘柄", options=brand_names, width=100),
-            "作業日誌":   st.column_config.TextColumn(  "作業日誌", width=150),
-            "担当者":     st.column_config.SelectboxColumn("担当者", options=worker_names, width=80),
+            "作業日誌":   st.column_config.TextColumn(  "作業日誌",  width=150),
         },
         key=f"sheet_editor_{sel_fh_id}"
     )
@@ -803,7 +798,7 @@ with tab1:
             use_container_width=True,
             hide_index=True,
             num_rows="fixed",
-        height=56 * 35 + 38,
+        height=planned_age * 28 + 38,
             column_config={
                 "日齢":       st.column_config.NumberColumn("日齢",       disabled=True, width=42),
                 "月日":       st.column_config.TextColumn(  "月日",       disabled=True, width=60),
