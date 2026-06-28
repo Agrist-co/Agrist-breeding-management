@@ -71,6 +71,12 @@ ross308      = fetch("ross308_standard", "day")
 farm_map    = {f["farm_id"]:  f["farm_name"]  for f in farms}
 farm_opts   = {f["farm_name"]: f["farm_id"]   for f in farms}
 house_map   = {h["house_id"]: h["house_name"] for h in houses}
+tank_no_map = {h["house_id"]: h.get("tank_number", "-") for h in houses}
+# flock_house_id → tank_number のマップ
+fh_tank_map = {
+    fh["flock_house_id"]: tank_no_map.get(fh["house_id"], "-")
+    for fh in flock_houses
+}
 ln_map      = {ln["lot_number_id"]: ln["lot_number"] for ln in lot_numbers}
 brand_map   = {b["feed_brand_id"]: b["brand_name"]   for b in feed_brands}
 brand_opts  = {b["brand_name"]: b["feed_brand_id"]   for b in feed_brands}
@@ -1012,12 +1018,19 @@ with tab2:
                                     "status":   "発注済",
                                 }).eq("detail_id", detail_id).execute()
                             # 発注書テキスト生成
-                            o_lines = [f"【飼料発注】{o_farm}", f"発注日: {o_order_date}", ""]
+                            o_lines = [
+                                f"【飼料発注】{o_farm}",
+                                f"発注日: {o_order_date}",
+                                "",
+                                f"{'納品予定日':<12}{'タンクNo':<10}{'発注量(kg)':<12}{'発注内容'}",
+                                "-" * 60,
+                            ]
                             for _, r in df_sel.sort_values("delivery_date").iterrows():
+                                tank_no = fh_tank_map.get(r.get("flock_house_id"), "-")
                                 o_lines.append(
-                                    f"  {r['delivery_date']}（{r['house_name']} 日齢{int(r['day_age'] or 0)}日）"
-                                    f"　{r['order_qty']:,.0f}kg　{r['event_notes'] or ''}")
-                            o_lines += ["", f"合計: {o_total:,.0f} kg", "", "よろしくお願いいたします。", o_farm]
+                                    f"{r['delivery_date']:<12}{str(tank_no):<10}"
+                                    f"{r['order_qty']:>8,.0f}kg    {r['event_notes'] or ''}")
+                            o_lines += ["-" * 60, f"{'合計':<22}{o_total:>8,.0f}kg", "", "よろしくお願いいたします。", o_farm]
                             st.session_state["o_order_id"]    = o_order_id
                             st.session_state["o_order_text"]  = "\n".join(o_lines)
                             st.success(f"✅ 発注登録完了（ID: {o_order_id}）")
@@ -1082,16 +1095,57 @@ with tab2:
                                         st.error(f"送信エラー: {e}")
 
                         else:  # 印刷
-                            _print_html = o_body_text.replace("\n", "<br>").replace(" ", "&nbsp;")
+                            # テーブル形式のHTML発注書を生成
+                            _rows_html = ""
+                            for _, r in df_sel.sort_values("delivery_date").iterrows():
+                                _tank_no = fh_tank_map.get(r.get("flock_house_id"), "-")
+                                _rows_html += f"""<tr>
+                                    <td>{r['delivery_date']}</td>
+                                    <td>{_tank_no}</td>
+                                    <td style="text-align:right">{r['order_qty']:,.0f}</td>
+                                    <td class="notes">{r['event_notes'] or ''}</td>
+                                </tr>"""
+                            _print_html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>発注書</title>
+<style>
+  body {{ font-family: 'MS Gothic', monospace; font-size: 12pt; padding: 20mm; }}
+  h2 {{ font-size: 14pt; margin-bottom: 4px; }}
+  p {{ margin: 2px 0; font-size: 11pt; }}
+  table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
+  th {{ background: #f0f0f0; border: 1px solid #999; padding: 6px 8px; font-size: 11pt; text-align: left; white-space: nowrap; }}
+  td {{ border: 1px solid #999; padding: 5px 8px; white-space: nowrap; overflow: hidden; }}
+  td.notes {{ font-size: 9pt; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }}
+  tr {{ height: 24px; max-height: 24px; }}
+  .total {{ font-weight: bold; text-align: right; padding: 6px 8px; border-top: 2px solid #333; }}
+  .footer {{ margin-top: 20px; font-size: 11pt; }}
+  @media print {{ button {{ display: none; }} }}
+</style>
+</head><body>
+<h2>【飼料発注】{o_farm}</h2>
+<p>発注日: {o_order_date}</p>
+<table>
+  <thead><tr>
+    <th>納品予定日</th><th>タンクNo</th><th style="text-align:right">発注量(kg)</th><th>発注内容</th>
+  </tr></thead>
+  <tbody>{_rows_html}</tbody>
+  <tfoot><tr>
+    <td colspan="2" style="font-weight:bold">合計</td>
+    <td class="total">{o_total:,.0f}</td>
+    <td></td>
+  </tr></tfoot>
+</table>
+<div class="footer"><p>よろしくお願いいたします。</p><p>{o_farm}</p></div>
+<br>
+<button onclick="window.print()" style="padding:8px 20px;font-size:12pt;cursor:pointer;">🖨️ 印刷</button>
+</body></html>"""
+                            import base64
+                            _b64 = base64.b64encode(_print_html.encode("utf-8")).decode()
                             st.components.v1.html(f"""
-<html><body>
 <button onclick="
   var w=window.open('','_blank');
-  w.document.write('<html><head><title>発注書</title><style>body{{font-family:monospace;font-size:13px;padding:20px;white-space:pre-wrap}}</style></head><body>{_print_html}</body></html>');
-  w.document.close();
-  w.focus();
-  w.print();
+  var html=atob('{_b64}');
+  w.document.open();w.document.write(html);w.document.close();
+  setTimeout(function(){{w.focus();}},300);
 " style="background:#1f77b4;color:white;border:none;padding:10px 24px;border-radius:4px;cursor:pointer;font-size:14px;">
-🖨️ 発注書を印刷
-</button>
-</body></html>""", height=60)
+🖨️ 発注書を印刷プレビュー
+</button>""", height=55)
