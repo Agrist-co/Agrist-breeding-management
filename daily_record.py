@@ -461,7 +461,7 @@ def get_ross308(age):
 # 対象選択
 # ----------------------------------------------------------
 st.title("▍ ブロイラー飼養管理 - 入力・発注予測")
-tab1, tab2, tab3 = st.tabs(["◈ 日次入力・発注予測", "◉ 発注", "◈ 推移グラフ"])
+tab1, tab2, tab3 = st.tabs(["◈ 記録と予測", "◈ 飼料発注", "◈ 飼育グラフ"])
 
 
 with tab1:
@@ -1395,6 +1395,16 @@ with tab3:
                     label="House Max (C)", linewidth=1.5)
             ax.plot(df_g["日齢"], df_g["house_temp_min"], "b-",
                     label="House Min (C)", linewidth=1.5)
+            # Ross308推奨温度（体重ベース・RH60%）
+            if comfort_temp:
+                comfort_upper = []
+                for age in std_ages:
+                    bw = get_ross308(age).get("weight_g") or 0
+                    closest = min(comfort_temp,
+                        key=lambda r: abs((r["body_weight_g"] or 0) - bw))
+                    comfort_upper.append(closest.get("rh_60pct_temp_c"))
+                ax.plot(std_ages, comfort_upper, "r--", alpha=0.5,
+                        label="Ross308 Comfort Temp (RH60%)", linewidth=1.2)
             ax2.plot(df_g["日齢"], df_g["house_humidity"], "g-",
                      label="Humidity (%)", linewidth=1.5, alpha=0.8)
             ax2.set_ylabel("Humidity (%)", color="green")
