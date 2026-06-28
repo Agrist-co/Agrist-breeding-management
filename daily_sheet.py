@@ -340,9 +340,9 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             _pre_delivered[0] += qty
             return f"{cur['brand_name']} {qty:,.0f}kg"
         else:
-            # 前期残り分＋仕上分に分割（100kg単位で四捨五入→1000kg単位）
+            # 前期残り分＋仕上分に分割（1000kg単位、pre_remainingを超えない）
             pre_qty = round(pre_remaining / 1000) * 1000
-            pre_qty = max(min(pre_qty, qty), 0)
+            pre_qty = max(min(pre_qty, int(pre_remaining), qty), 0)
             nxt_qty = qty - pre_qty
             _pre_delivered[0] += pre_qty
             nxt = get_brand_for_age(age_to + 1, active_brs)
@@ -423,8 +423,8 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         else:
             oq = 0.0
             if pred_tank[d] <= min_alert:
-                # 出荷日までの残り採食量合計
-                future_need = df.loc[d:, "std_feed_kg"].sum()
+                # 出荷日までの残り採食量合計（補正後の予測採食量を使用）
+                future_need = df.loc[d:, "act_feed_kg"].sum()
                 cur_tank    = pred_tank[d]
                 # 今回の発注後に出荷日まで持つか判定
                 # 持たない → 配送単位で発注
