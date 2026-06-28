@@ -711,8 +711,8 @@ with tab1:
             data = {
                 "flock_house_id":    sel_fh_id,
                 "record_date":       rec_date,
-                "mortality_count":   int(row["斃死"]  or 0),
-                "culling_count":     int(row["淘汰"]  or 0),
+                "mortality_count":   int(row["斃死"])  if pd.notna(row["斃死"])  else 0,
+                "culling_count":     int(row["淘汰"])  if pd.notna(row["淘汰"])  else 0,
                 "house_temp_max":    float(row["舎内最高℃"]) if pd.notna(row["舎内最高℃"]) else None,
                 "house_temp_min":    float(row["舎内最低℃"]) if pd.notna(row["舎内最低℃"]) else None,
                 "house_humidity":    float(row["湿度%"])      if pd.notna(row["湿度%"])      else None,
