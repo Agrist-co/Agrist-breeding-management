@@ -629,8 +629,10 @@ with tab1:
     _mort_cum = 0
     _cull_cum = 0
     for i in range(len(df_disp)):
-        _mort_cum += int(df_disp.at[i, "斃死"] or 0)
-        _cull_cum += int(df_disp.at[i, "淘汰"] or 0)
+        _v_mort = df_disp.at[i, "斃死"]
+        _v_cull = df_disp.at[i, "淘汰"]
+        _mort_cum += int(_v_mort) if _v_mort is not None and str(_v_mort) not in ("", "nan", "None") else 0
+        _cull_cum += int(_v_cull) if _v_cull is not None and str(_v_cull) not in ("", "nan", "None") else 0
         df_disp.at[i, "合計"] = _mort_cum + _cull_cum
 
     edited = st.data_editor(
