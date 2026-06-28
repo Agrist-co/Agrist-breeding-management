@@ -800,6 +800,9 @@ with tab1:
             _dbg_alert = df_fc[df_fc["pred_tank"] <= fc_min_alert][["day","date_str","pred_tank","delivery_kg","event_notes"]]
             st.write(f"タンク200kg以下の行: {len(_dbg_alert)}件")
             st.dataframe(_dbg_alert.round(1), hide_index=True)
+            # rec_by_dayの内容確認
+            st.write(f"fc_recs日齢一覧: {sorted([int((date.fromisoformat(r['record_date'])-chick_in_date).days) for r in fc_recs if r.get('record_date')])}")
+            st.write(f"adj_dict: {adj_dict}")
             # 全行のpred_tankを確認
             st.dataframe(df_fc[["day","date_str","pred_tank","delivery_kg","act_feed_kg","event_notes"]].round(1), hide_index=True)
 
