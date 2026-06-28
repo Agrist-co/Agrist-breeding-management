@@ -979,12 +979,21 @@ with tab1:
 with tab2:
     st.markdown("### ◆ 発注")
 
-    # ---- 農場選択（先に農場を選んで予定配送の日付範囲を取得） ----
-    o_farm    = st.selectbox("農場", list(farm_opts.keys()), key="o_farm")
-    o_farm_id = farm_opts[o_farm]
+    # ---- 農場をチェックボックスで複数選択 ----
+    st.markdown("**対象農場を選択**")
+    _farm_cols = st.columns(min(len(farms), 6))
+    _sel_farm_ids = []
+    for i, f in enumerate(farms):
+        if _farm_cols[i % len(_farm_cols)].checkbox(
+                f["farm_name"], value=True, key=f"o_farm_chk_{f['farm_id']}"):
+            _sel_farm_ids.append(f["farm_id"])
 
-    # ---- 農場内育成中の鶏舎を取得・表示 ----
-    o_farm_ln_ids = {ln["lot_number_id"] for ln in lot_numbers if ln["farm_id"] == o_farm_id}
+    if not _sel_farm_ids:
+        st.warning("農場を1つ以上選択してください")
+        st.stop()
+
+    # ---- 選択農場内の育成中鶏舎を取得 ----
+    o_farm_ln_ids = {ln["lot_number_id"] for ln in lot_numbers if ln["farm_id"] in _sel_farm_ids}
     o_farm_fhs    = [fh for fh in flock_houses
                      if fh["lot_number_id"] in o_farm_ln_ids and fh.get("status") == "育成中"]
 
@@ -1076,7 +1085,7 @@ with tab2:
                     if _do_order_save:
                         try:
                             res = supabase.table("feed_orders").insert({
-                                "farm_id":         o_farm_id,
+                                "farm_id":         _sel_farm_ids[0],
                                 "order_date":      str(o_order_date),
                                 "delivery_date":   str(o_from),
                                 "lead_time_days":  0,
@@ -1090,8 +1099,9 @@ with tab2:
                                     "status":   "発注済",
                                 }).eq("detail_id", detail_id).execute()
                             # 発注書テキスト生成
+                            _o_farm_names = ", ".join(f["farm_name"] for f in farms if f["farm_id"] in _sel_farm_ids)
                             o_lines = [
-                                f"【飼料発注】{o_farm}",
+                                f"【飼料発注】{_o_farm_names}",
                                 f"発注日: {o_order_date}",
                                 "",
                                 f"{'納品予定日':<12}{'タンクNo':<10}{'発注量(kg)':<12}{'発注内容'}",
@@ -1268,22 +1278,29 @@ with tab3:
         g_farm    = st.selectbox("農場", list(farm_opts.keys()), key="g_farm")
         g_farm_id = farm_opts[g_farm]
     with gc2:
-        g_lns = [ln for ln in lot_numbers if ln["farm_id"] == g_farm_id]
-        if not g_lns:
-            st.info("ロット番号がありません")
-            st.stop()
-        g_ln_id = st.selectbox("ロット番号",
-            [ln["lot_number_id"] for ln in g_lns],
-            format_func=lambda x: ln_map[x], key="g_ln")
-    with gc3:
-        g_fhs = [fh for fh in flock_houses if fh["lot_number_id"] == g_ln_id]
-        if not g_fhs:
+        # 農場内の全鶏舎（flock_housesから直接）
+        g_farm_ln_ids = {ln["lot_number_id"] for ln in lot_numbers if ln["farm_id"] == g_farm_id}
+        g_all_fhs = [fh for fh in flock_houses if fh["lot_number_id"] in g_farm_ln_ids]
+        if not g_all_fhs:
             st.info("鶏舎がありません")
             st.stop()
-        g_fh_id = st.selectbox("鶏舎",
+        g_house_opts = {}
+        for fh in g_all_fhs:
+            hn = house_map.get(fh["house_id"], str(fh["house_id"]))
+            if hn not in g_house_opts:
+                g_house_opts[hn] = fh["house_id"]
+        g_house_name = st.selectbox("鶏舎", list(g_house_opts.keys()), key="g_house")
+        g_house_id   = g_house_opts[g_house_name]
+    with gc3:
+        # 選択した鶏舎の入雛日一覧
+        g_fhs = [fh for fh in g_all_fhs if fh["house_id"] == g_house_id]
+        if not g_fhs:
+            st.info("データがありません")
+            st.stop()
+        g_fh_id = st.selectbox("入雛日",
             [fh["flock_house_id"] for fh in g_fhs],
-            format_func=lambda x: house_map.get(
-                next(fh["house_id"] for fh in g_fhs if fh["flock_house_id"] == x), ""),
+            format_func=lambda x: next(
+                (fh["chick_in_date"] for fh in g_fhs if fh["flock_house_id"] == x), ""),
             key="g_fh")
 
     g_recs = supabase.table("daily_records") \
