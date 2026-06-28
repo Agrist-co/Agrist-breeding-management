@@ -1138,13 +1138,15 @@ with tab2:
 <br>
 <button onclick="window.print()" style="padding:8px 20px;font-size:12pt;cursor:pointer;">🖨️ 印刷</button>
 </body></html>"""
-                            import base64
-                            _b64 = base64.b64encode(_print_html.encode("utf-8")).decode()
+                            # data: URIでUTF-8を直接渡す（文字化け防止）
+                            import urllib.parse
+                            _encoded = urllib.parse.quote(_print_html, safe='')
                             st.components.v1.html(f"""
 <button onclick="
   var w=window.open('','_blank');
-  var html=atob('{_b64}');
-  w.document.open();w.document.write(html);w.document.close();
+  w.document.open('text/html','replace');
+  w.document.write(decodeURIComponent('{_encoded}'));
+  w.document.close();
   setTimeout(function(){{w.focus();}},300);
 " style="background:#1f77b4;color:white;border:none;padding:10px 24px;border-radius:4px;cursor:pointer;font-size:14px;">
 🖨️ 発注書を印刷プレビュー
