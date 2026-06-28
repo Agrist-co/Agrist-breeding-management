@@ -1043,7 +1043,7 @@ with tab2:
                             o_order_text_new = "\n".join(o_lines)
                             st.session_state["o_order_id"]   = o_order_id
                             st.session_state["o_order_text"] = o_order_text_new
-                            st.success(f"✅ 発注登録完了（ID: {o_order_id}）")
+                            st.rerun()
                         except Exception as e:
                             st.error(f"登録エラー: {e}")
 
