@@ -890,6 +890,9 @@ with tab1:
             order_plan["タンク残量kg"]  = order_plan["pred_tank"].round(0)
             order_plan["採食累計kg"]    = order_plan["cum_feed_kg"].round(0)
 
+        # シミュレーション表の下にスペースと破線
+        st.markdown("<div style='margin-top:12px; border-top: 1px dashed #aaa; margin-bottom:12px;'></div>", unsafe_allow_html=True)
+
         # ---- Step8: 予定配送の保存・更新ボタン ----
         if not order_plan.empty:
             if _do_fc_save:
