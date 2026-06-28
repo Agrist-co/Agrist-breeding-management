@@ -38,6 +38,13 @@ div[data-testid="stDataFrameResizable"] [data-testid="column-header-cell"] {
     padding: 2px 4px !important;
     line-height: 1.2 !important;
 }
+/* ボタン: フォントを小さく・折り返し防止 */
+.stButton > button {
+    font-size: 0.75rem !important;
+    white-space: nowrap !important;
+    padding: 0.25rem 0.5rem !important;
+    line-height: 1.4 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
