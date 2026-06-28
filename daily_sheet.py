@@ -945,18 +945,9 @@ with tab1:
 with tab2:
     st.markdown("### 🚛 発注")
 
-    # ---- タブ先頭: 農場・期間・発注日 ----
-    oc1, oc2, oc3, oc4 = st.columns(4)
-    with oc1:
-        o_farm    = st.selectbox("農場", list(farm_opts.keys()), key="o_farm")
-        o_farm_id = farm_opts[o_farm]
-    with oc2:
-        o_from = st.date_input("納品範囲（開始）", value=date.today(), key="o_from")
-    with oc3:
-        o_to   = st.date_input("納品範囲（終了）",
-            value=date.today() + timedelta(days=14), key="o_to")
-    with oc4:
-        o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date")
+    # ---- 農場選択（先に農場を選んで予定配送の日付範囲を取得） ----
+    o_farm    = st.selectbox("農場", list(farm_opts.keys()), key="o_farm")
+    o_farm_id = farm_opts[o_farm]
 
     # ---- 農場内育成中の鶏舎を取得・表示 ----
     o_farm_ln_ids = {ln["lot_number_id"] for ln in lot_numbers if ln["farm_id"] == o_farm_id}
@@ -984,7 +975,7 @@ with tab2:
         st.dataframe(pd.DataFrame(fh_info_rows),
             use_container_width=True, hide_index=True)
 
-        # ---- 予定配送を期間でフィルタして取得 ----
+        # ---- 全予定配送を取得して日付範囲を確定 ----
         o_fh_ids  = [fh["flock_house_id"] for fh in o_farm_fhs]
         o_details = []
         for fh_id in o_fh_ids:
@@ -1000,6 +991,24 @@ with tab2:
                 row["house_name"] = house_map.get(fh_obj.get("house_id"), "")
                 row["lot_number"] = ln_obj.get("lot_number", "")
                 o_details.append(row)
+
+        # 予定配送の日付範囲を取得してデフォルト値に使用
+        if o_details:
+            _all_dates = [date.fromisoformat(r["delivery_date"]) for r in o_details if r.get("delivery_date")]
+            _min_date  = min(_all_dates) if _all_dates else date.today()
+            _max_date  = max(_all_dates) if _all_dates else date.today() + timedelta(days=14)
+        else:
+            _min_date = date.today()
+            _max_date = date.today() + timedelta(days=14)
+
+        # ---- 期間・発注日選択 ----
+        oc1, oc2, oc3 = st.columns(3)
+        with oc1:
+            o_from = st.date_input("納品範囲（開始）", value=_min_date, key="o_from")
+        with oc2:
+            o_to   = st.date_input("納品範囲（終了）", value=_max_date, key="o_to")
+        with oc3:
+            o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date")
 
         # デバッグ: 取得状況確認
         with st.expander("🔍 発注デバッグ", expanded=False):
