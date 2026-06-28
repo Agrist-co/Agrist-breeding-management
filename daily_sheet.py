@@ -624,6 +624,9 @@ with tab1:
     ]
 
     df_disp = df_all[display_cols].copy()
+    # 合計列を斃死+淘汰の累計で再計算（入力中もリアルタイム反映）
+    df_disp["合計"] = df_disp["斃死"].fillna(0).astype(int) + df_disp["淘汰"].fillna(0).astype(int)
+    df_disp["合計"] = df_disp["合計"].cumsum()
 
     edited = st.data_editor(
         df_disp,
@@ -679,11 +682,10 @@ with tab1:
 
             # 斃死・淘汰・環境・採食時間・納品量のどれかが入力されていれば保存対象
             has_data = any([
-                pd.notna(row["斃死"])      and row["斃死"]      != 0,
-                pd.notna(row["淘汰"])      and row["淘汰"]      != 0,
+                pd.notna(row["斃死"])        and row["斃死"]        != 0,
+                pd.notna(row["淘汰"])        and row["淘汰"]        != 0,
                 pd.notna(row["舎内最高℃"]),
                 pd.notna(row["採食時間min"]) and row["採食時間min"] != 0,
-                pd.notna(row["納品量kg"])  and row["納品量kg"]  != 0,
                 bool(row.get("作業日誌")),
             ])
 
@@ -1031,10 +1033,10 @@ with tab2:
                                     f"{r['delivery_date']:<12}{str(tank_no):<10}"
                                     f"{r['order_qty']:>8,.0f}kg    {r['event_notes'] or ''}")
                             o_lines += ["-" * 60, f"{'合計':<22}{o_total:>8,.0f}kg", "", "よろしくお願いいたします。", o_farm]
-                            st.session_state["o_order_id"]    = o_order_id
-                            st.session_state["o_order_text"]  = "\n".join(o_lines)
+                            o_order_text_new = "\n".join(o_lines)
+                            st.session_state["o_order_id"]   = o_order_id
+                            st.session_state["o_order_text"] = o_order_text_new
                             st.success(f"✅ 発注登録完了（ID: {o_order_id}）")
-                            st.rerun()
                         except Exception as e:
                             st.error(f"登録エラー: {e}")
 
@@ -1108,7 +1110,7 @@ with tab2:
                             _print_html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>発注書</title>
 <style>
-  body {{ font-family: 'MS Gothic', monospace; font-size: 12pt; padding: 20mm; }}
+  body {{ font-family: 'Source Sans Pro', 'Noto Sans JP', sans-serif; font-size: 12pt; padding: 20mm; }}
   h2 {{ font-size: 14pt; margin-bottom: 4px; }}
   p {{ margin: 2px 0; font-size: 11pt; }}
   table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
