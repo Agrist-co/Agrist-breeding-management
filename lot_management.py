@@ -359,8 +359,10 @@ with tab2:
                 e_cd  = st.date_input("入雛日",
                     value=date.fromisoformat(fh["chick_in_date"]) if fh["chick_in_date"] else date.today(),
                     key="e_cd")
+                _e_fd_val = date.fromisoformat(fh["initial_feed_delivery_date"]) if fh["initial_feed_delivery_date"] else e_cd - timedelta(days=1)
+                _e_fd_val = min(_e_fd_val, e_cd)  # max_valueを超えないよう補正
                 e_fd  = st.date_input("初回飼料納入日",
-                    value=date.fromisoformat(fh["initial_feed_delivery_date"]) if fh["initial_feed_delivery_date"] else e_cd - timedelta(days=1),
+                    value=_e_fd_val,
                     max_value=e_cd, key="e_fd")
                 e_fq  = st.number_input("初回飼料納入量（kg）",
                     min_value=0.0, value=float(fh["initial_feed_delivery_qty"] or 0), step=100.0, key="e_fq")
