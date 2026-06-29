@@ -249,6 +249,14 @@ with tab1:
         # 出荷日齢（計画）
         planned_age = st.number_input("出荷日齢（計画）", min_value=30, max_value=70, value=46, step=1, key="n_age")
 
+        # 飼料使用量
+        st.markdown("**飼料使用量（kg）**")
+        fq1, fq2 = st.columns(2)
+        with fq1:
+            starter_qty = st.number_input("前期使用量（kg）", min_value=0.0, value=0.0, step=500.0, key="n_starter_qty")
+        with fq2:
+            grower_qty  = st.number_input("中期使用量（kg）、0=中期なし", min_value=0.0, value=0.0, step=500.0, key="n_grower_qty")
+
         # 摘要
         remarks = st.text_area("摘要", key="n_remarks")
 
@@ -268,6 +276,8 @@ with tab1:
                         "planned_shipment_age_days":  planned_age,
                         "initial_feed_delivery_date": str(feed_date),
                         "initial_feed_delivery_qty":  feed_qty or None,
+                        "starter_qty_kg":             starter_qty or None,
+                        "grower_qty_kg":              grower_qty or None,
                         "status":                     "育成中",
                         "remarks":                    remarks or None
                     })
@@ -349,16 +359,18 @@ with tab2:
                 e_cd  = st.date_input("入雛日",
                     value=date.fromisoformat(fh["chick_in_date"]) if fh["chick_in_date"] else date.today(),
                     key="e_cd")
-                _e_fd_default = (
-                    min(date.fromisoformat(fh["initial_feed_delivery_date"]), e_cd)
-                    if fh["initial_feed_delivery_date"]
-                    else e_cd - timedelta(days=1)
-                )
                 e_fd  = st.date_input("初回飼料納入日",
-                    value=_e_fd_default,
+                    value=date.fromisoformat(fh["initial_feed_delivery_date"]) if fh["initial_feed_delivery_date"] else e_cd - timedelta(days=1),
                     max_value=e_cd, key="e_fd")
                 e_fq  = st.number_input("初回飼料納入量（kg）",
                     min_value=0.0, value=float(fh["initial_feed_delivery_qty"] or 0), step=100.0, key="e_fq")
+                eq1, eq2 = st.columns(2)
+                with eq1:
+                    e_starter = eq1.number_input("前期使用量（kg）",
+                        min_value=0.0, value=float(fh.get("starter_qty_kg") or 0), step=500.0, key="e_starter")
+                with eq2:
+                    e_grower  = eq2.number_input("中期使用量（kg）",
+                        min_value=0.0, value=float(fh.get("grower_qty_kg") or 0), step=500.0, key="e_grower")
                 e_cc  = st.number_input("入雛羽数（正味）",
                     min_value=1, value=int(fh["chick_in_count"]), step=100, key="e_cc")
                 e_sp_pct = st.number_input("スペア率（%）",
@@ -380,6 +392,8 @@ with tab2:
                             "chick_in_date":              str(e_cd),
                             "initial_feed_delivery_date": str(e_fd),
                             "initial_feed_delivery_qty":  e_fq or None,
+                            "starter_qty_kg":             e_starter or None,
+                            "grower_qty_kg":              e_grower or None,
                             "chick_in_count":             e_cc,
                             "spare_pct":                  e_sp_pct,
                             "spare_count":                e_sp,
@@ -423,6 +437,8 @@ with tab3:
                 "入雛日":         fh.get("chick_in_date", ""),
                 "初回納入日":     fh.get("initial_feed_delivery_date", ""),
                 "初回納入量(kg)": fh.get("initial_feed_delivery_qty", ""),
+                "前期(kg)":       fh.get("starter_qty_kg", ""),
+                "中期(kg)":       fh.get("grower_qty_kg", ""),
                 "入雛羽数":       fh.get("chick_in_count", ""),
                 "スペア率(%)":    fh.get("spare_pct", ""),
                 "スペア羽数":     fh.get("spare_count", ""),
