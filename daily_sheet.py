@@ -747,9 +747,8 @@ with tab1:
                 brand_obj2 = next((b for b in feed_brands if b["feed_brand_id"] == brand_id), {}) if brand_id else {}
                 ratio2   = float(brand_obj2.get("transfer_coef_ratio") or 1.0)
 
-                data = {
-                    "flock_house_id":    sel_fh_id,
-                    "record_date":       rec_date,
+                # 日次入力データ（feed_delivery_qtyは上書きしない）
+                data_update = {
                     "mortality_count":   int(row["斃死"])  if pd.notna(row["斃死"])  else 0,
                     "culling_count":     int(row["淘汰"])  if pd.notna(row["淘汰"])  else 0,
                     "house_temp_max":    float(row["舎内最高℃"]) if pd.notna(row["舎内最高℃"]) else None,
@@ -759,19 +758,21 @@ with tab1:
                     "outside_temp_min":  float(row["外気最低℃"]) if pd.notna(row["外気最低℃"]) else None,
                     "avg_body_weight":   float(row["平均体重g"])  if pd.notna(row["平均体重g"])  and float(row["平均体重g"] or 0) > 0 else None,
                     "feed_duration_min": float(row["採食時間min"]) if pd.notna(row["採食時間min"]) and float(row["採食時間min"] or 0) > 0 else None,
-                    "feed_delivery_qty": None,  # 納品量は発注予測から管理
-                    "feed_brand_id":     brand_id,
                     "work_log":          str(row["作業日誌"]) if pd.notna(row.get("作業日誌")) and row["作業日誌"] else None,
-                    "worker_id":         worker_opts.get(row["担当者"]) if pd.notna(row.get("担当者")) and row["担当者"] else None,
+                }
+                data_insert = {
+                    **data_update,
+                    "flock_house_id": sel_fh_id,
+                    "record_date":    rec_date,
                 }
 
                 try:
                     if rec_id and pd.notna(rec_id):
-                        supabase.table("daily_records").update(data) \
+                        supabase.table("daily_records").update(data_update) \
                             .eq("daily_record_id", int(rec_id)).execute()
                         updated += 1
                     else:
-                        supabase.table("daily_records").insert(data).execute()
+                        supabase.table("daily_records").insert(data_insert).execute()
                         inserted += 1
                 except Exception as e:
                     errors.append(f"日齢{orig['日令']}: {e}")
