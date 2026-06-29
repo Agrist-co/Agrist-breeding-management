@@ -305,66 +305,79 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     delivery_kg = np.zeros(len(df))
     event_notes = [""] * len(df)
 
-    # 前期銘柄の総必要量（0日齢〜前期終了日の標準採食合計）
-    _cur_brand_at0 = get_brand_for_age(0, active_brs)
-    _cur_age_to    = _cur_brand_at0.get("age_to_days") if _cur_brand_at0 else None
-    _pre_total_need = df.loc[
-        df["day"].between(0, _cur_age_to if _cur_age_to is not None else shipping_age - 1),
-        "std_feed_kg"
-    ].sum() if _cur_brand_at0 else 0.0
+    # 前期・中期の絶対使用量（flock_housesのstarter_qty_kg/grower_qty_kg）
+    _starter_total = float(fh.get("starter_qty_kg") or 0)
+    _grower_total  = float(fh.get("grower_qty_kg")  or 0)
+    # 未設定の場合は標準採食量合計で推定
+    if _starter_total == 0:
+        _cur_brand_at0 = get_brand_for_age(0, active_brs)
+        _cur_age_to    = _cur_brand_at0.get("age_to_days") if _cur_brand_at0 else None
+        _starter_total = df.loc[
+            df["day"].between(0, _cur_age_to if _cur_age_to is not None else shipping_age - 1),
+            "std_feed_kg"
+        ].sum() if _cur_brand_at0 else 0.0
 
-    # 前期発注累計（初回投入 + 以降の前期分発注）を追跡
-    _pre_delivered = [0.0]  # リストで可変参照
+    # 前期・中期・仕上の累計発注追跡
+    _starter_delivered = [0.0]
+    _grower_delivered  = [0.0]
 
     def get_order_note_for_day(day, qty):
-        """前期残量ベースで銘柄を決定する"""
-        cur = get_brand_for_age(day, active_brs)
-        if cur is None:
-            return f"{qty:,.0f}kg"
-        age_to = cur.get("age_to_days")
+        """前期→中期→仕上の順に残量ベースで銘柄を決定"""
+        starter_brand = get_brand_for_age(0, active_brs)
+        finish_brand  = next(
+            (b for b in sorted(active_brs, key=lambda b: b.get("age_from_days") or 0, reverse=True)
+             if b.get("age_to_days") is None), None)
+        # 中期銘柄（age_to_daysがあり前期でも仕上でもないもの）
+        grower_brand  = next(
+            (b for b in sorted(active_brs, key=lambda b: b.get("age_from_days") or 0)
+             if b.get("age_to_days") is not None
+             and b != starter_brand), None) if _grower_total > 0 else None
 
-        # 既に仕上フェーズ（前期銘柄の期間を過ぎている）
-        if age_to is None:
-            return f"{cur['brand_name']} {qty:,.0f}kg"
+        s_name = starter_brand["brand_name"] if starter_brand else "前期"
+        g_name = grower_brand["brand_name"]  if grower_brand  else "中期"
+        f_name = finish_brand["brand_name"]  if finish_brand  else "仕上"
 
-        # 前期の残り必要量
-        pre_remaining = max(_pre_total_need - _pre_delivered[0], 0.0)
+        s_remain = max(_starter_total - _starter_delivered[0], 0.0)
+        g_remain = max(_grower_total  - _grower_delivered[0],  0.0) if _grower_total > 0 else 0.0
 
-        if pre_remaining <= 0:
-            # 前期は満足済み → 全量仕上
-            nxt = get_brand_for_age(age_to + 1, active_brs)
-            nxt_name = nxt["brand_name"] if nxt else "仕上"
-            return f"{nxt_name} {qty:,.0f}kg"
-        elif pre_remaining >= qty:
-            # 全量前期で足りる
-            _pre_delivered[0] += qty
-            return f"{cur['brand_name']} {qty:,.0f}kg"
-        else:
-            # 前期残り分＋仕上分に分割（1000kg単位、pre_remainingを超えない）
-            pre_qty = round(pre_remaining / 1000) * 1000
-            pre_qty = max(min(pre_qty, int(pre_remaining), qty), 0)
-            nxt_qty = qty - pre_qty
-            _pre_delivered[0] += pre_qty
-            nxt = get_brand_for_age(age_to + 1, active_brs)
-            nxt_name = nxt["brand_name"] if nxt else "仕上"
-            if nxt_qty <= 0 or pre_qty <= 0:
-                # 片方が0の場合は単独表示
-                if pre_qty <= 0:
-                    return f"{nxt_name} {qty:,.0f}kg"
-                return f"{cur['brand_name']} {qty:,.0f}kg"
-            return f"{cur['brand_name']} {pre_qty:,.0f}kg ＋ {nxt_name} {nxt_qty:,.0f}kg"
+        result_parts = []
+        remaining_qty = float(qty)
 
-    # 0日齢: flock_houses.initial_feed_delivery_qtyを初回投入量として使用
+        # 前期分
+        if s_remain > 0 and remaining_qty > 0:
+            s_alloc = round(min(s_remain, remaining_qty) / 1000) * 1000
+            s_alloc = max(min(s_alloc, int(s_remain), int(remaining_qty)), 0)
+            if s_alloc > 0:
+                result_parts.append(f"{s_name} {s_alloc:,.0f}kg")
+                _starter_delivered[0] += s_alloc
+                remaining_qty -= s_alloc
+
+        # 中期分
+        if g_remain > 0 and remaining_qty > 0:
+            g_alloc = round(min(g_remain, remaining_qty) / 1000) * 1000
+            g_alloc = max(min(g_alloc, int(g_remain), int(remaining_qty)), 0)
+            if g_alloc > 0:
+                result_parts.append(f"{g_name} {g_alloc:,.0f}kg")
+                _grower_delivered[0] += g_alloc
+                remaining_qty -= g_alloc
+
+        # 仕上分
+        if remaining_qty > 0:
+            result_parts.append(f"{f_name} {remaining_qty:,.0f}kg")
+
+        return " ＋ ".join(result_parts) if result_parts else f"{f_name} {qty:,.0f}kg"
+
+    # 0日齢: 初回投入は前期
     delivery_kg[0] = first_qty
     pred_tank[0]   = first_qty
     real_tank[0]   = first_qty
-    # 0日齢は前期銘柄のみ、初回投入分を前期発注累計に加算
-    _day0_brand = get_brand_for_age(0, active_brs)
+    _day0_brand      = get_brand_for_age(0, active_brs)
     _day0_brand_name = _day0_brand["brand_name"] if _day0_brand else "前期"
-    event_notes[0] = f"{_day0_brand_name} {first_qty:,.0f}kg" if first_qty > 0 else ""
-    _pre_delivered[0] += first_qty  # 初回投入分を前期累計に加算
+    event_notes[0]   = f"{_day0_brand_name} {first_qty:,.0f}kg" if first_qty > 0 else ""
+    _starter_delivered[0] += first_qty  # 初回投入分を前期累計に加算
     day0_feed    = df.loc[0, "act_feed_kg"]
     evening_pred = first_qty - day0_feed
+
 
     _debug_fc = []  # デバッグ用
     for d in range(1, len(df)):
@@ -811,6 +824,7 @@ with tab1:
         with st.expander("🔍 発注デバッグ", expanded=False):
             st.write(f"min_alert={fc_min_alert}, std_qty={fc_std_qty}")
             st.write(f"初回投入量(fh)={float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
+            st.write(f"前期標準採食合計(0〜前期末)={df_fc.loc[df_fc['day']<=18,'std_feed_kg'].sum():.0f}kg")
             # pred_tankが200以下になる行を確認
             _dbg_alert = df_fc[df_fc["pred_tank"] <= fc_min_alert][["day","date_str","pred_tank","delivery_kg","event_notes"]]
             st.write(f"タンク200kg以下の行: {len(_dbg_alert)}件")
