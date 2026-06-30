@@ -445,7 +445,9 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             # 日次記録があっても納品なし＆タンク警戒以下なら発注計算
             if pred_tank[d] <= min_alert and dt == 0:
                 _d_idx      = day_to_idx.get(d, d)
-                future_need = float(actual_feed[_d_idx:].sum())
+                future_need = float(
+                    (df.loc[_d_idx:, "std_feed_kg"] * df.loc[_d_idx:, "adj_rate"]).sum()
+                )  # 補正後標準値ベース
                 cur_tank    = pred_tank[d]
                 if future_need - cur_tank > 0:
                     if future_need - (cur_tank + std_qty) <= 0:
@@ -462,7 +464,9 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         else:
             oq = 0.0
             _d_idx      = day_to_idx.get(d, d)
-            future_need = float(actual_feed[_d_idx:].sum())
+            future_need = float(
+                    (df.loc[_d_idx:, "std_feed_kg"] * df.loc[_d_idx:, "adj_rate"]).sum()
+                )  # 補正後標準値ベース
             cur_tank    = pred_tank[d]
             _debug_fc.append(f"d={d} tank={cur_tank:.0f} need={future_need:.0f} alert={min_alert}")
             if pred_tank[d] <= min_alert:
@@ -484,7 +488,10 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     df["delivery_kg"]     = delivery_kg
     df["event_notes"]     = event_notes
     df["act_feed_kg"]     = actual_feed
-    df["cum_feed_kg"]     = df["act_feed_kg"].cumsum()
+    # 採食累計: 補正後標準値（std_feed_kg × adj_rate）のみで統一
+    # 実績採食時間は含めない（発注予測の基準値として一貫性を保つ）
+    df["std_act_feed_kg"] = df["std_feed_kg"] * df["adj_rate"]
+    df["cum_feed_kg"]     = df["std_act_feed_kg"].cumsum()
     df["cum_delivery_kg"] = df["delivery_kg"].cumsum()  # delivery_kg[0]=first_qty含む
     return df
 ross_dict   = {(r["sex"], r["day"]): r for r in ross308}
