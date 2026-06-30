@@ -1445,18 +1445,18 @@ with tab2:
         oc1, oc2, oc3, oc4 = st.columns([2, 2, 2, 1])
         with oc1:
             o_from = st.date_input("納品範囲（開始）",
-                value=st.session_state.get("o_from_val", _min_date), key="o_from")
+                value=st.session_state.get("o_from_val", _min_date), key="o_from_t3")
             st.session_state["o_from_val"] = o_from
         with oc2:
             o_to   = st.date_input("納品範囲（終了）",
-                value=st.session_state.get("o_to_val", _max_date), key="o_to")
+                value=st.session_state.get("o_to_val", _max_date), key="o_to_t3")
             st.session_state["o_to_val"] = o_to
         with oc3:
-            o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date")
+            o_order_date = st.date_input("発注日", value=date.today(), key="o_order_date_t3")
         with oc4:
             st.markdown("&nbsp;", unsafe_allow_html=True)
             _do_order_save_top = st.button("▶ 発注確定登録", type="primary",
-                key="o_save_top", use_container_width=True)
+                key="o_save_top_t3", use_container_width=True)
 
         if not o_details:
             st.info("予定配送が登録されていません。タブ1の発注予測でシミュレーションを実行してください。")
@@ -1550,14 +1550,14 @@ with tab2:
                         st.markdown("#### ▸ 発注書プレビュー")
                         o_body_text = st.text_area("発注書（編集可）",
                             value=st.session_state.get("o_order_text", ""),
-                            height=250, key="o_body")
+                            height=250, key="o_body_t3")
                     else:
                         o_body_text = ""
                     if st.session_state.get("o_order_id"):
                         st.markdown("#### ▸ 送信")
                         send_method = st.radio("送信方法",
                             ["📧 メール", "🖨️ 印刷"],
-                            horizontal=True, key="o_send_method")
+                            horizontal=True, key="o_send_method_t3")
 
                         if send_method == "📧 メール":
                             o_email_settings = supabase.table("email_settings").select("*").execute().data
@@ -1568,12 +1568,12 @@ with tab2:
                             else:
                                 o_setting_opts = {es["setting_name"]: es for es in o_farm_es}
                                 o_es      = o_setting_opts[st.selectbox("送信先設定",
-                                    list(o_setting_opts.keys()), key="o_email_sel")]
-                                o_to_addr = st.text_input("宛先", value=o_es.get("to_address",""), key="o_to_addr")
-                                o_cc_addr = st.text_input("CC",  value=o_es.get("cc_address",""),  key="o_cc")
+                                    list(o_setting_opts.keys()), key="o_email_sel_t3")]
+                                o_to_addr = st.text_input("宛先", value=o_es.get("to_address",""), key="o_to_addr_t3")
+                                o_cc_addr = st.text_input("CC",  value=o_es.get("cc_address",""),  key="o_cc_t3")
                                 o_subject = st.text_input("件名",
-                                    value=f"【飼料発注】{o_order_date}", key="o_subject")
-                                if st.button("▶ メール送信", key="o_send_email", type="primary"):
+                                    value=f"【飼料発注】{o_order_date}", key="o_subject_t3")
+                                if st.button("▶ メール送信", key="o_send_email_t3", type="primary"):
                                     try:
                                         import smtplib
                                         from email.mime.text import MIMEText
