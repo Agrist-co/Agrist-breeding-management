@@ -849,16 +849,8 @@ with tab1:
             # 編集用DataFrameを構築
             # 実測残量・調整発注量は編集可能、それ以外は読み取り専用
             # adj_dictから調整発注値を取得
+            # 調整発注kg列はadj_dictのみ表示（daily_records既存値は別表示にする）
             adj_delivery = {day: v.get("delivered") for day, v in adj_dict.items() if v.get("delivered")}
-            # 既存のdaily_records納品量も調整発注列に表示（adj_dict優先、なければdaily_recordsの値）
-            _rec_delivery = {
-                int((date.fromisoformat(r["record_date"]) - chick_in_date).days): float(r["feed_delivery_qty"])
-                for r in fc_recs
-                if r.get("record_date") and r.get("feed_delivery_qty") and float(r["feed_delivery_qty"]) > 0
-            }
-            for _day, _qty in _rec_delivery.items():
-                if _day not in adj_delivery:
-                    adj_delivery[_day] = _qty
 
             edit_df = pd.DataFrame({
                 "日齢":       df_fc["day"].astype(int),
@@ -915,18 +907,27 @@ with tab1:
             # ---- Step5: 変更を検知してadj_dictを更新→自動再計算 ----
             new_adj = {}
             for i, row in edited_fc.iterrows():
-                day   = int(row["日齢"])
-                entry = {}
+                day      = int(row["日齢"])
+                orig_row = edit_df.iloc[i]
+                entry    = {}
 
-                # 実測残量: 0日齢以外を保存（0日齢はfirst_qty固定）
-                new_real = row.get("実測残量kg")
+                # 実測残量: 元の表示値と異なる場合のみ保存
+                new_real  = row.get("実測残量kg")
+                orig_real = orig_row.get("実測残量kg")
                 if new_real is not None and pd.notna(new_real) and day > 0:
-                    entry["actual_tank"] = float(new_real)
+                    if not (pd.notna(orig_real) and float(orig_real) == float(new_real)):
+                        entry["actual_tank"] = float(new_real)
+                    elif day in adj_dict and adj_dict[day].get("actual_tank") is not None:
+                        entry["actual_tank"] = adj_dict[day]["actual_tank"]
 
-                # 調整発注量: 入力があれば保存、空欄=自動予測に戻す
-                new_del = row.get("調整発注kg")
+                # 調整発注量: 元の表示値と異なる場合のみ保存
+                new_del  = row.get("調整発注kg")
+                orig_del = orig_row.get("調整発注kg")
                 if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
-                    entry["delivered"] = float(new_del)
+                    if not (pd.notna(orig_del) and float(orig_del) == float(new_del)):
+                        entry["delivered"] = float(new_del)
+                    elif day in adj_dict and adj_dict[day].get("delivered"):
+                        entry["delivered"] = adj_dict[day]["delivered"]
 
                 if entry:
                     new_adj[day] = entry
