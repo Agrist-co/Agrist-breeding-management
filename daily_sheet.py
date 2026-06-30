@@ -267,10 +267,9 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                     delivered_between += float(rec_by_day[dd].get("feed_delivery_qty") or 0)
 
             consumed = s_tank + delivered_between - e_tank
-            # 区間s〜e-1の実際の採食量合計
-            # actual_feed: 日次記録がある日は実績値、ない日は標準値（補正率1.0）
+            # 区間s〜e-1の標準採食量合計（補正率計算の分母は常にstd_feed_kg）
             actual_cons = sum(
-                actual_feed[day_to_idx[d]]
+                df.loc[day_to_idx[d], "std_feed_kg"]
                 for d in range(s, e) if d in day_to_idx
             )
             rate = consumed / actual_cons if actual_cons > 0 else 1.0
