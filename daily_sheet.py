@@ -3,6 +3,7 @@
 日齢0〜出荷日齢の全行を一覧表示・直接入力
 """
 
+import re
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -994,7 +995,7 @@ with tab1:
                                     dt = dt.date()
                                 _del_date = str(dt)
                                 _qty      = float(r["発注量kg"])
-                                _notes    = str(r.get("発注種別") or "")
+                                _notes    = re.sub(r"^\[.*?\]\s*|^最終:\s*|^納品:\s*", "", str(r.get("発注種別") or ""))
                                 _brand_id = next(
                                     (b["feed_brand_id"] for b in feed_brands
                                      if b.get("brand_name") and b["brand_name"] in _notes), None)
@@ -1233,7 +1234,7 @@ with tab1:
                                     _del_date = str(dr["delivery_date"])
                                     _fh_id    = int(dr["flock_house_id"])
                                     _qty      = float(dr["order_qty"])
-                                    _notes    = str(dr.get("event_notes") or "")
+                                    _notes    = re.sub(r"^\[.*?\]\s*|^最終:\s*|^納品:\s*", "", str(dr.get("event_notes") or ""))
                                     # 銘柄名からfeed_brand_idを取得
                                     _brand_id = next(
                                         (b["feed_brand_id"] for b in feed_brands
@@ -1513,7 +1514,7 @@ with tab2:
                                     _del_date = str(dr["delivery_date"])
                                     _fh_id    = int(dr["flock_house_id"])
                                     _qty      = float(dr["order_qty"])
-                                    _notes    = str(dr.get("event_notes") or "")
+                                    _notes    = re.sub(r"^\[.*?\]\s*|^最終:\s*|^納品:\s*", "", str(dr.get("event_notes") or ""))
                                     _brand_id = next(
                                         (b["feed_brand_id"] for b in feed_brands
                                          if b.get("brand_name") and b["brand_name"] in _notes), None)
