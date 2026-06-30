@@ -432,7 +432,16 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 evening_pred   = pred_tank[d] + dt - daily_feed
             if dt > 0:
                 delivery_kg[d] = dt
-                event_notes[d] = f"納品: {dt:.0f}kg"
+                # 銘柄名を取得して発注内容に表示
+                _r_bid   = r.get("feed_brand_id")
+                _r_bname = next((b["brand_name"] for b in feed_brands if b["feed_brand_id"] == _r_bid), "") if _r_bid else ""
+                _r_notes = r.get("feed_order_notes") or ""
+                if _r_notes and not _r_notes.startswith("納品"):
+                    event_notes[d] = _r_notes
+                elif _r_bname:
+                    event_notes[d] = f"{_r_bname} {dt:,.0f}kg"
+                else:
+                    event_notes[d] = f"{dt:,.0f}kg"
             # 日次記録があっても納品なし＆タンク警戒以下なら発注計算
             if pred_tank[d] <= min_alert and dt == 0:
                 _d_idx      = day_to_idx.get(d, d)
