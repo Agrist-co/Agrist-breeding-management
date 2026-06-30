@@ -382,7 +382,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
 
     _debug_fc = []  # デバッグ用
     for d in range(1, len(df)):
-        daily_feed   = df.loc[d, "act_feed_kg"]
+        daily_feed   = df.loc[d, "std_feed_kg"] * df.loc[d, "adj_rate"]  # 補正後標準値
         r            = rec_by_day.get(d, {})
 
         # pred_tank[d] = 前日evening_predを引き継ぐ（朝のタンク残量）
@@ -426,10 +426,9 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 bobj  = next((b for b in feed_brands if b["feed_brand_id"] == bid), {})                         if bid else get_brand_for_age(d, active_brs) or {}
                 ratio = float(bobj.get("transfer_coef_ratio") or 1.0)
                 ri    = float(r["feed_duration_min"]) * house_coef * ratio
-                actual_feed[d] = ri
-                evening_pred   = pred_tank[d] + dt - ri
-            else:
-                evening_pred   = pred_tank[d] + dt - daily_feed
+                actual_feed[d] = ri  # 実績採食量（表示用）
+            # 予測残量は補正後標準値で計算（実績採食時間は使わない）
+            evening_pred = pred_tank[d] + dt - daily_feed
             if dt > 0:
                 delivery_kg[d] = dt
                 # 銘柄名を取得して発注内容に表示
@@ -849,15 +848,14 @@ with tab1:
                 st.write(f"min_alert={fc_min_alert}, std_qty={fc_std_qty}")
                 st.write(f"初回投入量(fh)={float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
                 st.write(f"前期標準採食合計(0〜前期末)={df_fc.loc[df_fc['day']<=18,'std_feed_kg'].sum():.0f}kg")
-                # pred_tankが200以下になる行を確認
-                _dbg_alert = df_fc[df_fc["pred_tank"] <= fc_min_alert][["day","date_str","pred_tank","delivery_kg","event_notes"]]
-                st.write(f"タンク200kg以下の行: {len(_dbg_alert)}件")
-                st.dataframe(_dbg_alert.round(1), hide_index=True)
-                # rec_by_dayの内容確認
-                st.write(f"fc_recs日齢一覧: {sorted([int((date.fromisoformat(r['record_date'])-chick_in_date).days) for r in fc_recs if r.get('record_date')])}")
-                st.write(f"adj_dict: {adj_dict}")
-                # 全行のpred_tankを確認
-                st.dataframe(df_fc[["day","date_str","pred_tank","delivery_kg","act_feed_kg","event_notes"]].round(1), hide_index=True)
+                # 発注が入っている行と残量チェック
+                _dbg_orders = df_fc[df_fc["delivery_kg"] > 0][["day","date_str","pred_tank","delivery_kg","event_notes"]]
+                st.write(f"発注あり行: {len(_dbg_orders)}件")
+                st.dataframe(_dbg_orders.round(1), hide_index=True)
+                # fc_recsの納品量確認
+                _del_recs = [(int((date.fromisoformat(r['record_date'])-chick_in_date).days), r.get('feed_delivery_qty'))
+                             for r in fc_recs if r.get('feed_delivery_qty') and float(r['feed_delivery_qty']) > 0]
+                st.write(f"daily_records納品データ: {_del_recs}")
 
             # ---- Step4: 編集可能なシミュレーション表 ----
             st.markdown("#### ◇ タンク残量シミュレーション")
