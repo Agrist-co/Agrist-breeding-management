@@ -1101,7 +1101,7 @@ with tab1:
     _sel_farm_ids = []
     for i, f in enumerate(farms):
         if _farm_cols[i % len(_farm_cols)].checkbox(
-                f["farm_name"], value=True, key=f"o_farm_chk_{f['farm_id']}"):
+                f["farm_name"], value=True, key=f"o_farm_chk_tab2_{f['farm_id']}"):
             _sel_farm_ids.append(f["farm_id"])
 
     if not _sel_farm_ids:
@@ -1395,7 +1395,7 @@ with tab2:
     _sel_farm_ids = []
     for i, f in enumerate(farms):
         if _farm_cols[i % len(_farm_cols)].checkbox(
-                f["farm_name"], value=True, key=f"o_farm_chk_{f['farm_id']}"):
+                f["farm_name"], value=True, key=f"o_farm_chk_tab2_{f['farm_id']}"):
             _sel_farm_ids.append(f["farm_id"])
 
     if not _sel_farm_ids:
