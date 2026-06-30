@@ -847,14 +847,11 @@ with tab1:
                 st.write(f"min_alert={fc_min_alert}, std_qty={fc_std_qty}")
                 st.write(f"初回投入量(fh)={float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
                 st.write(f"前期標準採食合計(0〜前期末)={df_fc.loc[df_fc['day']<=18,'std_feed_kg'].sum():.0f}kg")
-                # 発注が入っている行と残量チェック
-                _dbg_orders = df_fc[df_fc["delivery_kg"] > 0][["day","date_str","pred_tank","delivery_kg","event_notes"]]
-                st.write(f"発注あり行: {len(_dbg_orders)}件")
-                st.dataframe(_dbg_orders.round(1), hide_index=True)
-                # fc_recsの納品量確認
-                _del_recs = [(int((date.fromisoformat(r['record_date'])-chick_in_date).days), r.get('feed_delivery_qty'))
-                             for r in fc_recs if r.get('feed_delivery_qty') and float(r['feed_delivery_qty']) > 0]
-                st.write(f"daily_records納品データ: {_del_recs}")
+                st.write(f"adj_dict: {adj_dict}")
+                _dbg_orders = df_fc[df_fc["delivery_kg"] > 0][["day","date_str","adj_rate","pred_tank","delivery_kg","event_notes"]]
+                st.write(f"発注あり行:")
+                st.dataframe(_dbg_orders.round(3), hide_index=True)
+                st.dataframe(df_fc[["day","date_str","adj_rate","act_feed_kg","std_feed_kg","pred_tank","delivery_kg"]].round(3), hide_index=True)
 
             # ---- Step4: 編集可能なシミュレーション表 ----
             st.markdown("#### ◇ タンク残量シミュレーション")
