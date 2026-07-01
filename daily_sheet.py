@@ -917,27 +917,27 @@ with tab1:
             # ---- Step5: 変更を検知してadj_dictを更新→自動再計算 ----
             new_adj = {}
             for i, row in edited_fc.iterrows():
-                day      = int(row["日齢"])
-                orig_row = edit_df.iloc[i]
-                entry    = {}
+                day   = int(row["日齢"])
+                entry = {}
 
-                # 実測残量: 元の表示値と異なる場合のみ保存
-                new_real  = row.get("実測残量kg")
-                orig_real = orig_row.get("実測残量kg")
-                if new_real is not None and pd.notna(new_real) and day > 0:
-                    if not (pd.notna(orig_real) and float(orig_real) == float(new_real)):
-                        entry["actual_tank"] = float(new_real)
-                    elif day in adj_dict and adj_dict[day].get("actual_tank") is not None:
+                # adj_dictの既存値を先に引き継ぐ
+                if day in adj_dict:
+                    if adj_dict[day].get("actual_tank") is not None:
                         entry["actual_tank"] = adj_dict[day]["actual_tank"]
-
-                # 調整発注量: 元の表示値と異なる場合のみ保存
-                new_del  = row.get("調整発注kg")
-                orig_del = orig_row.get("調整発注kg")
-                if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
-                    if not (pd.notna(orig_del) and float(orig_del) == float(new_del)):
-                        entry["delivered"] = float(new_del)
-                    elif day in adj_dict and adj_dict[day].get("delivered"):
+                    if adj_dict[day].get("delivered"):
                         entry["delivered"] = adj_dict[day]["delivered"]
+
+                # 実測残量: セルに値があれば上書き（0日齢除く）
+                new_real = row.get("実測残量kg")
+                if new_real is not None and pd.notna(new_real) and day > 0:
+                    entry["actual_tank"] = float(new_real)
+                elif "actual_tank" not in entry:
+                    pass  # 値なし→引き継がない
+
+                # 調整発注量: セルに値があれば上書き
+                new_del = row.get("調整発注kg")
+                if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
+                    entry["delivered"] = float(new_del)
 
                 if entry:
                     new_adj[day] = entry
