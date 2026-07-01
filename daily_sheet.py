@@ -253,8 +253,13 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         for i in range(len(sorted_act) - 1):
             s, e = sorted_act[i], sorted_act[i+1]
             # s_tank = 実測残量 + s日の納品量（実測後に投入される分）
+            # delivered: combined_tank → adj_delivery_map → rec_by_day の順で取得
             s_tank_raw = combined_tank[s]["actual_tank"]
             s_delivery = combined_tank[s].get("delivered", 0)
+            if s_delivery == 0 and s in adj_delivery_map:
+                s_delivery = adj_delivery_map[s]
+            if s_delivery == 0 and s in rec_by_day:
+                s_delivery = float(rec_by_day[s].get("feed_delivery_qty") or 0)
             s_tank     = s_tank_raw + s_delivery
             e_tank     = combined_tank[e]["actual_tank"]
 
@@ -272,7 +277,11 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 df.loc[day_to_idx[d], "std_feed_kg"]
                 for d in range(s, e) if d in day_to_idx
             )
-            rate = consumed / actual_cons if actual_cons > 0 else 1.0
+            # 消費量がゼロ以下（残量増加）の場合は補正率計算不能→前の補正率を継続
+            if consumed <= 0 or actual_cons <= 0:
+                rate = latest_rate  # 前区間の補正率を継続
+            else:
+                rate = consumed / actual_cons
             latest_rate = rate
             for d in range(s, e):
                 if d in day_to_idx:
