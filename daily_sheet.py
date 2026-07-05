@@ -520,6 +520,7 @@ with tab1:
     _left_col, _right_col = st.columns([11, 9])
 
     with _left_col:
+        c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 1])
         with c1:
             sel_farm    = st.selectbox("農場", list(farm_opts.keys()), key="s_farm")
             sel_farm_id = farm_opts[sel_farm]
