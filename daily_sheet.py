@@ -74,7 +74,6 @@ feed_brands  = fetch("feed_brands",  "feed_brand_id")
 workers      = fetch("workers",      "worker_id")
 ross308      = fetch("ross308_standard", "day")
 comfort_temp = fetch("ross_comfort_temp", "body_weight_g")
-ross308      = fetch("ross308_standard", "day")
 
 farm_map    = {f["farm_id"]:  f["farm_name"]  for f in farms}
 farm_opts   = {f["farm_name"]: f["farm_id"]   for f in farms}
@@ -588,12 +587,18 @@ with tab1:
         tank_capacity   = sel_house.get("tank_capacity") or "-"
         tank_number     = sel_house.get("tank_number")   or "-"
 
-        # 残存羽数計算
-        all_recs = supabase.table("daily_records") \
-            .select("mortality_count,culling_count") \
-            .eq("flock_house_id", sel_fh_id).execute().data
-        total_mort = sum(r["mortality_count"] or 0 for r in all_recs)
-        total_cull = sum(r["culling_count"]   or 0 for r in all_recs)
+        # daily_records を1回だけ取得（日次入力・発注予測・残存羽数で共用）
+        existing_recs = supabase.table("daily_records") \
+            .select("*") \
+            .eq("flock_house_id", sel_fh_id) \
+            .order("record_date").execute().data
+
+        rec_by_date = {r["record_date"]: r for r in existing_recs}
+        fc_recs     = existing_recs  # 発注予測用に共用
+
+        # 残存羽数計算（取得済みデータから）
+        total_mort = sum(r["mortality_count"] or 0 for r in existing_recs)
+        total_cull = sum(r["culling_count"]   or 0 for r in existing_recs)
         remaining  = chick_in_count + spare_count - total_mort - total_cull
 
         st.dataframe(pd.DataFrame([{
@@ -605,17 +610,6 @@ with tab1:
             "スペア羽数":      f"{spare_count:,}",
             "出荷日齢":        f"{planned_age}日",
         }]), use_container_width=True, hide_index=True)
-
-
-        # ----------------------------------------------------------
-        # 既存の日次記録を取得
-        # ----------------------------------------------------------
-        existing_recs = supabase.table("daily_records") \
-            .select("*") \
-            .eq("flock_house_id", sel_fh_id) \
-            .order("record_date").execute().data
-
-        rec_by_date = {r["record_date"]: r for r in existing_recs}
 
         # ----------------------------------------------------------
         # 全日齢分のDataFrameを構築（日齢0〜出荷日齢）
@@ -683,107 +677,150 @@ with tab1:
         df_all = pd.DataFrame(rows)
 
         # ----------------------------------------------------------
-        # ----------------------------------------------------------
-        display_cols = [
-            "日令","月日",
-            "斃死","淘汰","合計",
-            "舎内最高℃","舎内最低℃","湿度%","外気最高℃","外気最低℃",
-            "平均体重g",
-            "採食時間min","採食量kg",
-            "納品量kg","飼料銘柄","飼料発注",
-            "作業日誌",
-        ]
+        # ---- 統合DataFrame: 日次入力＋発注予測 ----
+        # df_allとdf_fcを日齢で結合
+        df_fc = run_feed_forecast(
+            sel_fh, fc_recs, house_coef,
+            fc_std_qty, fc_min_alert, fc_lead_time,
+            adj_dict=adj_dict)
 
-        df_disp = df_all[display_cols].copy()
+        # デバッグ
+        with st.expander("🔍 発注デバッグ", expanded=False):
+            st.write(f"min_alert={fc_min_alert}, std_qty={fc_std_qty}")
+            st.write(f"初回投入量(fh)={float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
+            st.write(f"前期標準採食合計(0〜前期末)={df_fc.loc[df_fc['day']<=18,'std_feed_kg'].sum():.0f}kg")
+            _dbg_orders = df_fc[df_fc["delivery_kg"] > 0][["day","date_str","adj_rate","pred_tank","delivery_kg","event_notes"]]
+            st.write(f"発注あり行:")
+            st.dataframe(_dbg_orders.round(3), hide_index=True)
+            _del_recs = [(int((date.fromisoformat(r['record_date'])-chick_in_date).days), r.get('feed_delivery_qty'))
+                         for r in fc_recs if r.get('feed_delivery_qty') and float(r['feed_delivery_qty']) > 0]
+            st.write(f"daily_records納品データ: {_del_recs}")
+            st.write(f"adj_dict: {adj_dict}")
 
-        # 保存前に斃死+淘汰の累計を事前計算してdisplayに反映
+        # 調整発注（adj_dictから）
+        adj_delivery = {day: v.get("delivered") for day, v in adj_dict.items() if v.get("delivered")}
+
+        # 実測残量
+        def _get_real(row):
+            d = int(row["day"])
+            if d in adj_dict and adj_dict[d].get("actual_tank") is not None:
+                return float(adj_dict[d]["actual_tank"])
+            rt = row["real_tank"]
+            return float(rt) if not (isinstance(rt, float) and np.isnan(rt)) else None
+
+        # 統合DataFrameを構築
+        today_day_fc = (date.today() - chick_in_date).days
+        edit_df = pd.DataFrame({
+            # 共通
+            "日令":       df_fc["day"].astype(int),
+            "月日":       df_fc.apply(
+                lambda r: f"◀{r['date_str']}" if r["day"] == today_day_fc else r["date_str"], axis=1),
+            # 日次入力列
+            "斃死":       df_all["斃死"],
+            "淘汰":       df_all["淘汰"],
+            "合計":       df_all["合計"],
+            "舎内最高℃": df_all["舎内最高℃"],
+            "舎内最低℃": df_all["舎内最低℃"],
+            "湿度%":      df_all["湿度%"],
+            "外気最高℃": df_all["外気最高℃"],
+            "外気最低℃": df_all["外気最低℃"],
+            "平均体重g":  df_all["平均体重g"],
+            "採食時間min":df_all["採食時間min"],
+            "納品量kg":   df_all["納品量kg"],
+            "飼料銘柄":   df_all["飼料銘柄"],
+            "飼料発注":   df_all["飼料発注"],
+            "作業日誌":   df_all["作業日誌"],
+            # 発注予測列
+            "採食kg(予)": df_fc["act_feed_kg"].round(1),
+            "標準採食kg": df_fc["std_feed_kg"].round(1),
+            "採食累計kg": df_fc["cum_feed_kg"].round(0),
+            "補正率":     df_fc["adj_rate"].round(3),
+            "予測残量kg": df_fc["pred_tank"].round(0),
+            "実測残量kg": df_fc.apply(_get_real, axis=1),
+            "予定発注kg": df_fc["delivery_kg"].apply(lambda x: float(x) if x > 0 else None),
+            "調整発注kg": df_fc["day"].apply(lambda d: adj_delivery.get(int(d))),
+            "発注内容":   df_fc["event_notes"],
+        })
+
+        # 合計列を斃死+淘汰の累計で再計算
         _mort_cum = 0
         _cull_cum = 0
-        for i in range(len(df_disp)):
-            _v_mort = df_disp.at[i, "斃死"]
-            _v_cull = df_disp.at[i, "淘汰"]
+        for i in range(len(edit_df)):
+            _v_mort = edit_df.at[i, "斃死"]
+            _v_cull = edit_df.at[i, "淘汰"]
             _mort_cum += int(_v_mort) if _v_mort is not None and str(_v_mort) not in ("", "nan", "None") else 0
             _cull_cum += int(_v_cull) if _v_cull is not None and str(_v_cull) not in ("", "nan", "None") else 0
-            df_disp.at[i, "合計"] = _mort_cum + _cull_cum
+            edit_df.at[i, "合計"] = _mort_cum + _cull_cum
 
+        # 統合data_editor
+        st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
         edited = st.data_editor(
-            df_disp,
+            edit_df,
             use_container_width=True,
             hide_index=True,
             num_rows="fixed",
             height=12 * 28 + 38,
-            column_order=display_cols,
             column_config={
-                "日令":       st.column_config.NumberColumn("日令",      disabled=True, width=40),
-                "月日":       st.column_config.TextColumn(  "月日",      disabled=True, width=55),
-                "斃死":       st.column_config.NumberColumn("斃死",      min_value=0, step=1, width=50),
-                "淘汰":       st.column_config.NumberColumn("淘汰",      min_value=0, step=1, width=50),
-                "合計":       st.column_config.NumberColumn("合計",      disabled=True, width=50),
-                "舎内最高℃": st.column_config.NumberColumn("舎内最高℃", step=0.1, width=70),
-                "舎内最低℃": st.column_config.NumberColumn("舎内最低℃", step=0.1, width=70),
-                "湿度%":      st.column_config.NumberColumn("湿度%",     min_value=0.0, max_value=100.0, step=1.0, width=55),
-                "外気最高℃": st.column_config.NumberColumn("外気最高℃", step=0.1, width=70),
-                "外気最低℃": st.column_config.NumberColumn("外気最低℃", step=0.1, width=70),
-                "平均体重g":  st.column_config.NumberColumn("平均体重g", step=1.0, width=70),
-                "標準体重g":  st.column_config.NumberColumn("標準体重g", disabled=True, width=70),
-                "採食時間min":st.column_config.NumberColumn("採食時間\nmin", step=0.1, format="%.1f", width=65),
-                "採食量kg":   st.column_config.NumberColumn("採食量kg",  disabled=True, width=65),
+                "日令":       st.column_config.NumberColumn("日令",      disabled=True, width=38),
+                "月日":       st.column_config.TextColumn(  "月日",      disabled=True, width=48),
+                "斃死":       st.column_config.NumberColumn("斃死",      min_value=0, step=1, width=48),
+                "淘汰":       st.column_config.NumberColumn("淘汰",      min_value=0, step=1, width=48),
+                "合計":       st.column_config.NumberColumn("合計",      disabled=True, width=48),
+                "舎内最高℃": st.column_config.NumberColumn("舎内最高℃", step=0.1, width=65),
+                "舎内最低℃": st.column_config.NumberColumn("舎内最低℃", step=0.1, width=65),
+                "湿度%":      st.column_config.NumberColumn("湿度%",     min_value=0.0, max_value=100.0, step=1.0, width=50),
+                "外気最高℃": st.column_config.NumberColumn("外気最高℃", step=0.1, width=65),
+                "外気最低℃": st.column_config.NumberColumn("外気最低℃", step=0.1, width=65),
+                "平均体重g":  st.column_config.NumberColumn("平均体重g", step=1.0, width=65),
+                "採食時間min":st.column_config.NumberColumn("採食時間\nmin", step=0.1, format="%.1f", width=60),
                 "納品量kg":   st.column_config.NumberColumn("納品量kg",  step=100.0, width=65),
-            "飼料銘柄":   st.column_config.SelectboxColumn("飼料銘柄", options=brand_names, width=90, disabled=True),
-                "飼料発注":   st.column_config.TextColumn(  "飼料発注",  disabled=True, width=150),
-                "作業日誌":   st.column_config.TextColumn(  "作業日誌",  width=150),
+                "飼料銘柄":   st.column_config.SelectboxColumn("飼料銘柄", options=brand_names, width=90, disabled=True),
+                "飼料発注":   st.column_config.TextColumn(  "飼料発注",  disabled=True, width=130),
+                "作業日誌":   st.column_config.TextColumn(  "作業日誌",  width=130),
+                "採食kg(予)": st.column_config.NumberColumn("採食kg(予)", disabled=True, width=70),
+                "標準採食kg": st.column_config.NumberColumn("標準採食kg", disabled=True, width=70),
+                "採食累計kg": st.column_config.NumberColumn("採食累計kg", disabled=True, width=75),
+                "補正率":     st.column_config.NumberColumn("補正率",    disabled=True, width=55),
+                "予測残量kg": st.column_config.NumberColumn("予測残量kg", disabled=True, width=75),
+                "実測残量kg": st.column_config.NumberColumn("実測残量kg", step=100.0, width=75),
+                "予定発注kg": st.column_config.NumberColumn("予定発注kg", disabled=True, width=75),
+                "調整発注kg": st.column_config.NumberColumn("調整発注kg", step=1000.0, width=75),
+                "発注内容":   st.column_config.TextColumn(  "発注内容",  disabled=True, width=160),
             },
-            key=f"sheet_editor_{sel_fh_id}"
+            key=f"unified_editor_{sel_fh_id}"
         )
 
-        # ----------------------------------------------------------
-        # 保存処理
-        # ----------------------------------------------------------
-        # 保存結果メッセージを表示（rerun後も保持）
-        if "sheet_msg" in st.session_state:
-            msg_type, msg_text = st.session_state.pop("sheet_msg")
-            if msg_type == "success":
-                st.success(msg_text)
-            else:
-                st.error(msg_text)
-
-
+        # ---- 保存処理 ----
         if _do_save:
             updated  = 0
             inserted = 0
             skipped  = 0
             errors   = []
+            has_data_debug = []
 
             for i, row in edited.iterrows():
-                orig     = df_all.iloc[i]
-                rec_date = orig["_date"]
-                rec_id   = orig["_id"]
+                orig = df_all.iloc[i]
+                rec_date = chick_in_date + timedelta(days=int(row["日令"]))
+                rec_id   = orig.get("_id")
+                brand_id = next((bid for bname, bid in brand_opts.items()
+                                 if bname == row.get("飼料銘柄")), None) if row.get("飼料銘柄") else None
 
-                # 斃死・淘汰・環境・採食時間・納品量のどれかが入力されていれば保存対象
                 has_data = any([
                     pd.notna(row["斃死"])        and row["斃死"]        != 0,
                     pd.notna(row["淘汰"])        and row["淘汰"]        != 0,
                     pd.notna(row["舎内最高℃"]),
                     pd.notna(row["採食時間min"]) and row["採食時間min"] != 0,
+                    pd.notna(row.get("納品量kg")) and row.get("納品量kg") != 0,
                     bool(row.get("作業日誌")),
                 ])
-
                 if not has_data:
                     skipped += 1
                     continue
-                st.write(f"保存対象: 日齢{orig['日令']} date={rec_date} 斃死={row.get('斃死')} 採食={row.get('採食時間min')}")
 
-                # 銘柄補正率
-                brand_nm = row.get("飼料銘柄") or ""
-                brand_id = brand_opts.get(brand_nm) if brand_nm else None
-                brand_obj2 = next((b for b in feed_brands if b["feed_brand_id"] == brand_id), {}) if brand_id else {}
-                ratio2   = float(brand_obj2.get("transfer_coef_ratio") or 1.0)
-
-                # 日次入力データ（feed_delivery_qtyは上書きしない）
-                # 納品量が入力された場合、feed_order_detailsから発注内容をコピー
+                # 納品量入力時にfeed_order_detailsから発注内容をコピー
                 _delivery_qty = float(row["納品量kg"]) if pd.notna(row.get("納品量kg")) and row.get("納品量kg") else None
                 _order_notes  = None
-                _brand_id     = None
+                _brand_id_del = None
                 if _delivery_qty and _delivery_qty > 0:
                     _fod = supabase.table("feed_order_details") \
                         .select("event_notes,feed_brand_id") \
@@ -793,7 +830,7 @@ with tab1:
                     if _fod:
                         _raw_notes   = _fod[0].get("event_notes") or ""
                         _order_notes = re.sub(r"^\[.*?\]\s*", "", re.sub(r"^(最終|納品): ", "", _raw_notes))
-                        _brand_id    = _fod[0].get("feed_brand_id")
+                        _brand_id_del = _fod[0].get("feed_brand_id")
 
                 data_update = {
                     "mortality_count":   int(row["斃死"])  if pd.notna(row["斃死"])  else 0,
@@ -807,14 +844,10 @@ with tab1:
                     "feed_duration_min": float(row["採食時間min"]) if pd.notna(row["採食時間min"]) and float(row["採食時間min"] or 0) > 0 else None,
                     "work_log":          str(row["作業日誌"]) if pd.notna(row.get("作業日誌")) and row["作業日誌"] else None,
                     "feed_delivery_qty": _delivery_qty,
-                    "feed_brand_id":     _brand_id,
+                    "feed_brand_id":     _brand_id_del,
                     "feed_order_notes":  _order_notes,
                 }
-                data_insert = {
-                    **data_update,
-                    "flock_house_id": sel_fh_id,
-                    "record_date":    rec_date,
-                }
+                data_insert = {**data_update, "flock_house_id": sel_fh_id, "record_date": rec_date}
 
                 try:
                     if rec_id and pd.notna(rec_id):
@@ -825,309 +858,121 @@ with tab1:
                         supabase.table("daily_records").insert(data_insert).execute()
                         inserted += 1
                 except Exception as e:
-                    errors.append(f"日齢{orig['日令']}: {e}")
+                    errors.append(str(e))
 
-            if errors:
-                st.session_state["sheet_msg"] = ("error", f"エラー: {'; '.join(errors[:3])}")
-            else:
-                msg = []
-                if updated  > 0: msg.append(f"更新 {updated}件")
-                if inserted > 0: msg.append(f"新規 {inserted}件")
-                if skipped  > 0: msg.append(f"未入力スキップ {skipped}件")
-                if not msg:
-                    msg.append("変更なし（入力データが検出されませんでした）")
-                st.session_state["sheet_save_msg"] = msg
-        # 発注予測保存と同時にrerun（_do_fc_saveで処理）
-
-        # ----------------------------------------------------------
-
-    with _right_col:
-        # ----------------------------------------------------------
-        # ----------------------------------------------------------
-        # ----------------------------------------------------------
-
-        # ---- 発注予測シミュレーション ----
-        st.markdown("---")
-        st.markdown("### ◆ 発注予測")
-        _do_fc_save = _do_save  # 一括保存と連動
-        fc_std_qty   = 4000.0   # 配送単位（kg）
-        fc_min_alert = 200.0    # 最低残量アラート（kg）
-        fc_lead_time = 0
-
-        st.caption("💡 表の「実測残量kg」「調整発注kg」を直接入力すると自動再計算されます")
-
-        try:
-            fc_recs = supabase.table("daily_records")             .select("*")             .eq("flock_house_id", sel_fh_id)             .order("record_date").execute().data
-
-            today_day_fc = (date.today() - chick_in_date).days
-
-            # ---- Step1: adj_dictを読み込む（セッション保持） ----
-            adj_key = f"adj_dict_{sel_fh_id}"
-            if adj_key not in st.session_state:
-                st.session_state[adj_key] = {}
-            adj_dict = st.session_state[adj_key]
-
-            # ---- Step2: 発注予測を実行（adj_dictを反映） ----
-            df_fc = run_feed_forecast(
-                sel_fh, fc_recs, house_coef,
-                fc_std_qty, fc_min_alert, fc_lead_time,
-                adj_dict=adj_dict)
-
-            # ---- デバッグ ----
-            with st.expander("🔍 発注デバッグ", expanded=False):
-                st.write(f"min_alert={fc_min_alert}, std_qty={fc_std_qty}")
-                st.write(f"初回投入量(fh)={float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
-                st.write(f"前期標準採食合計(0〜前期末)={df_fc.loc[df_fc['day']<=18,'std_feed_kg'].sum():.0f}kg")
-                st.write(f"adj_dict: {adj_dict}")
-                _dbg_orders = df_fc[df_fc["delivery_kg"] > 0][["day","date_str","adj_rate","pred_tank","delivery_kg","event_notes"]]
-                st.write(f"発注あり行:")
-                st.dataframe(_dbg_orders.round(3), hide_index=True)
-                st.dataframe(df_fc[["day","date_str","adj_rate","act_feed_kg","std_feed_kg","pred_tank","delivery_kg"]].round(3), hide_index=True)
-
-            # ---- Step4: 編集可能なシミュレーション表 ----
-            st.markdown("#### ◇ タンク残量シミュレーション")
-
-            # 編集用DataFrameを構築
-            # 実測残量・調整発注量は編集可能、それ以外は読み取り専用
-            # adj_dictから調整発注値を取得
-            # 調整発注kg列はadj_dictのみ表示（daily_records既存値は別表示にする）
-            adj_delivery = {day: v.get("delivered") for day, v in adj_dict.items() if v.get("delivered")}
-
-            edit_df = pd.DataFrame({
-                "日齢":       df_fc["day"].astype(int),
-                "月日":       df_fc.apply(
-                    lambda r: f"◀{r['date_str']}" if r["day"] == today_day_fc else r["date_str"],
-                    axis=1),
-                "採食kg":     df_fc["act_feed_kg"].round(1),
-                "標準採食kg": df_fc["std_feed_kg"].round(1),
-                "採食累計kg": df_fc["cum_feed_kg"].round(0),
-                "補正率":     df_fc["adj_rate"].round(3),
-                "予測残量kg": df_fc["pred_tank"].round(0),
-                "実測残量kg": df_fc.apply(
-                    lambda row: (
-                        float(adj_dict[int(row["day"])]["actual_tank"])
-                        if int(row["day"]) in adj_dict and adj_dict[int(row["day"])].get("actual_tank") is not None
-                        else (float(row["real_tank"]) if not (isinstance(row["real_tank"], float) and np.isnan(row["real_tank"])) else None)
-                    ), axis=1),
-                "予定発注kg": df_fc["delivery_kg"].apply(
-                    lambda x: float(x) if x > 0 else None),   # 自動計算・表示専用
-                "調整発注kg": df_fc["day"].apply(
-                    lambda d: adj_delivery.get(int(d))),       # 手動入力・空欄=予定発注を使用
-                "発注内容":   df_fc["event_notes"],
-            })
-
-            edited_fc = st.data_editor(
-                edit_df,
-                use_container_width=True,
-                hide_index=True,
-                num_rows="fixed",
-            height=12 * 28 + 38,
-                column_config={
-                    "日齢":       st.column_config.NumberColumn("日齢",       disabled=True, width=42),
-                    "月日":       st.column_config.TextColumn(  "月日",       disabled=True, width=60),
-                    "採食kg":     st.column_config.NumberColumn("採食kg\n(予測)",  disabled=True, width=65),
-                    "標準採食kg": st.column_config.NumberColumn("標準採食kg\n(Ross308)", disabled=True, width=85,
-                        help="Ross308標準値×羽数÷1000（環境・補正なし）"),
-                    "採食累計kg": st.column_config.NumberColumn("採食累計kg", disabled=True, width=78),
-                    "補正率":     st.column_config.NumberColumn("補正率",     disabled=True, width=55),
-                    "予測残量kg": st.column_config.NumberColumn("予測残量kg", disabled=True, width=78),
-                    "実測残量kg": st.column_config.NumberColumn("実測残量kg",
-                        min_value=0.0, step=10.0, width=85,
-                        help="実測タンク残量を入力→予測残量の補正に反映"),
-                    "予定発注kg": st.column_config.NumberColumn("予定発注kg", disabled=True, width=78,
-                        help="自動計算による予定発注量"),
-                    "調整発注kg": st.column_config.NumberColumn("調整発注kg",
-                        min_value=0.0, step=500.0, width=85,
-                        help="空欄=予定発注を使用。変更する場合のみ入力→自動再計算"),
-                    "発注内容":   st.column_config.TextColumn("発注内容（銘柄＋数量）",
-                        disabled=True, width=250),
-                },
-                key=f"fc_editor_{sel_fh_id}"
-            )
-
-            # ---- Step5: 変更を検知してadj_dictを更新→自動再計算 ----
+            # 発注予測: Step5（実測残量・調整発注の変更検知）
             new_adj = {}
-            for i, row in edited_fc.iterrows():
-                day   = int(row["日齢"])
+            for i, row in edited.iterrows():
+                day   = int(row["日令"])
                 entry = {}
-
-                # adj_dictの既存値を先に引き継ぐ
                 if day in adj_dict:
                     if adj_dict[day].get("actual_tank") is not None:
                         entry["actual_tank"] = adj_dict[day]["actual_tank"]
                     if adj_dict[day].get("delivered"):
                         entry["delivered"] = adj_dict[day]["delivered"]
-
-                # 実測残量: セルに値があれば上書き（0日齢除く）
                 new_real = row.get("実測残量kg")
                 if new_real is not None and pd.notna(new_real) and day > 0:
                     entry["actual_tank"] = float(new_real)
-                elif "actual_tank" not in entry:
-                    pass  # 値なし→引き継がない
-
-                # 調整発注量: セルに値があれば上書き
-                # 空欄の場合はdeliveredを引き継がない（自動予測に戻す）
                 new_del = row.get("調整発注kg")
                 if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
                     entry["delivered"] = float(new_del)
-                # else: 空欄→deliveredを入れない（adj_dictからも削除される）
-
                 if entry:
                     new_adj[day] = entry
 
-            # adj_dictが変わったらsession_stateに保存→自動再計算
             if new_adj != adj_dict:
                 st.session_state[adj_key] = new_adj
-                st.rerun()
 
-            # ---- Step6: 調整内容のリセット ----
-            if adj_dict:
-                adj_count = len([v for v in adj_dict.values()
-                                 if v.get("actual_tank") or v.get("delivered")])
-                st.caption(f"✏️ 調整中: {adj_count}件の変更あり")
-                if st.button("🔄 調整をリセット", key="fc_reset"):
-                    st.session_state[adj_key] = {}
-                    st.rerun()
+            # メッセージ
+            msg = []
+            if errors:
+                st.session_state["sheet_msg"] = ("error", f"エラー: {'; '.join(errors[:3])}")
+            else:
+                if updated  > 0: msg.append(f"更新 {updated}件")
+                if inserted > 0: msg.append(f"新規 {inserted}件")
+                if skipped  > 0: msg.append(f"未入力スキップ {skipped}件")
+                st.session_state["sheet_save_msg"] = msg
 
-            # ---- Step7: order_plan構築（発注タブで使用） ----
-            active_brs  = [b for b in feed_brands if b.get("is_active") not in (None, False, 0, "false", "0", "")]
-            order_plan  = df_fc[df_fc["delivery_kg"] > 0].copy()
-            if not order_plan.empty:
-                order_plan["納品予定日_dt"] = order_plan["date_obj"]
-                order_plan["納品予定日"]    = order_plan["date_str"]
-                order_plan["日齢"]          = order_plan["day"].astype(int)
-                order_plan["発注量kg"]      = order_plan["delivery_kg"].round(0)
-                order_plan["発注種別"]      = order_plan["event_notes"]
-                order_plan["タンク残量kg"]  = order_plan["pred_tank"].round(0)
-                order_plan["採食累計kg"]    = order_plan["cum_feed_kg"].round(0)
-
-            # シミュレーション表の下にスペースと破線
-            st.markdown("<div style='margin-top:16px; border-top: 1px dashed #aaa; margin-bottom:16px;'></div>", unsafe_allow_html=True)
-
-            # ---- Step8: 予定配送の保存・更新ボタン ----
-            if not order_plan.empty:
-                if _do_fc_save:
-                    try:
-                        # 1. 予定配送を保存
-                        # adj_dictの実測残量をfeed_order_detailsに反映（過去分も含めてupsert）
-                        for _day_str, _v in adj_dict.items():
-                            _act_tank = _v.get("actual_tank")
-                            if _act_tank is None:
-                                continue
-                            _act_date = str(chick_in_date + timedelta(days=int(_day_str)))
-                            # 既存レコードを検索してupdate、なければinsert
-                            _exist = supabase.table("feed_order_details") \
-                                .select("detail_id") \
-                                .eq("flock_house_id", sel_fh_id) \
-                                .eq("delivery_date", _act_date) \
-                                .limit(1).execute().data
-                            if _exist:
-                                supabase.table("feed_order_details").update({
-                                    "actual_tank_remaining": float(_act_tank),
-                                }).eq("detail_id", _exist[0]["detail_id"]).execute()
-                            else:
-                                supabase.table("feed_order_details").insert({
-                                    "flock_house_id":        sel_fh_id,
-                                    "delivery_date":         _act_date,
-                                    "actual_tank_remaining": float(_act_tank),
-                                    "order_qty":             0,
-                                    "status":                "実測",
-                                }).execute()
-
-                        # 今日以降の予定配送を削除（actual_tank_remainingが入力済みの行は保持）
-                        _del_targets = supabase.table("feed_order_details") \
-                            .select("detail_id,actual_tank_remaining") \
+            # 発注予測の保存（_do_fc_save連動）
+            if _do_fc_save and not order_plan.empty:
+                try:
+                    # adj_dictの実測残量をfeed_order_detailsに保存
+                    for _day_str, _v in new_adj.items():
+                        _act_tank = _v.get("actual_tank")
+                        if _act_tank is None:
+                            continue
+                        _act_date = str(chick_in_date + timedelta(days=int(_day_str)))
+                        _exist = supabase.table("feed_order_details") \
+                            .select("detail_id") \
                             .eq("flock_house_id", sel_fh_id) \
-                            .gte("delivery_date", str(date.today())) \
-                            .execute().data
-                        _del_ids = [r["detail_id"] for r in _del_targets
-                                    if r.get("actual_tank_remaining") is None]
-                        for _did in _del_ids:
-                            supabase.table("feed_order_details") \
-                                .delete().eq("detail_id", _did).execute()
-                        for _, r in order_plan.iterrows():
-                            dt = r["納品予定日_dt"]
-                            if hasattr(dt, "date"):
-                                dt = dt.date()
+                            .eq("delivery_date", _act_date) \
+                            .limit(1).execute().data
+                        if _exist:
+                            supabase.table("feed_order_details").update({
+                                "actual_tank_remaining": float(_act_tank),
+                            }).eq("detail_id", _exist[0]["detail_id"]).execute()
+                        else:
                             supabase.table("feed_order_details").insert({
-                                "order_id":       None,
-                                "flock_house_id": sel_fh_id,
-                                "feed_brand_id":  None,
-                                "order_qty":      float(r["発注量kg"]),
-                                "tank_remaining": float(r["タンク残量kg"]),
-                                "delivery_date":  str(dt),
-                                "day_age":        int(r["日齢"]),
-                                "event_notes":    str(r["発注種別"]),
-                                "pred_tank":      float(r["タンク残量kg"]),
-                                "status":         "予定",
+                                "flock_house_id":        sel_fh_id,
+                                "delivery_date":         _act_date,
+                                "actual_tank_remaining": float(_act_tank),
+                                "order_qty":             0,
+                                "status":                "実測",
                             }).execute()
 
-                        # 2. 既存の納品記録をクリア（キャンセル対応）
-                        _new_dates = set()
-                        for _, _r in order_plan.iterrows():
-                            _dt = _r["納品予定日_dt"]
-                            if hasattr(_dt, "date"): _dt = _dt.date()
-                            _new_dates.add(str(_dt))
-                        _old_recs = supabase.table("daily_records") \
-                            .select("daily_record_id,record_date") \
-                            .eq("flock_house_id", sel_fh_id) \
-                            .not_.is_("feed_delivery_qty", "null").execute().data
-                        for _old in _old_recs:
-                            if str(_old["record_date"]) not in _new_dates:
-                                supabase.table("daily_records").update({
-                                    "feed_delivery_qty": None,
-                                    "feed_brand_id":     None,
-                                    "feed_order_notes":  None,
-                                }).eq("daily_record_id", _old["daily_record_id"]).execute()
+                    # 今日以降の予定配送を削除（actual_tank_remainingが入力済みは保持）
+                    _del_targets = supabase.table("feed_order_details") \
+                        .select("detail_id,actual_tank_remaining") \
+                        .eq("flock_house_id", sel_fh_id) \
+                        .gte("delivery_date", str(date.today())) \
+                        .execute().data
+                    _del_ids = [r["detail_id"] for r in _del_targets
+                                if r.get("actual_tank_remaining") is None]
+                    for _did in _del_ids:
+                        supabase.table("feed_order_details") \
+                            .delete().eq("detail_id", _did).execute()
 
-                        # 2. 日次入力を同時一括更新（発注予定日の納品量・銘柄を反映）
-                        for _, r in order_plan.iterrows():
-                            try:
-                                dt = r["納品予定日_dt"]
-                                if hasattr(dt, "date"):
-                                    dt = dt.date()
-                                _del_date = str(dt)
-                                _qty      = float(r["発注量kg"])
-                                _notes    = re.sub(r"^\[.*?\]\s*|^最終:\s*|^納品:\s*", "", str(r.get("発注種別") or ""))
-                                _brand_id = next(
-                                    (b["feed_brand_id"] for b in feed_brands
-                                     if b.get("brand_name") and b["brand_name"] in _notes), None)
-                                _exists = supabase.table("daily_records") \
-                                    .select("daily_record_id") \
-                                    .eq("flock_house_id", sel_fh_id) \
-                                    .eq("record_date", _del_date).execute().data
-                                if _exists:
-                                    supabase.table("daily_records").update({
-                                        "feed_delivery_qty": _qty,
-                                        "feed_brand_id":     _brand_id,
-                                        "feed_order_notes":  _notes,
-                                    }).eq("daily_record_id", _exists[0]["daily_record_id"]).execute()
-                                else:
-                                    supabase.table("daily_records").insert({
-                                        "flock_house_id":    sel_fh_id,
-                                        "record_date":       _del_date,
-                                        "feed_delivery_qty": _qty,
-                                        "feed_brand_id":     _brand_id,
-                                        "feed_order_notes":  _notes,
-                                    }).execute()
-                            except Exception:
-                                pass
+                    # 予定配送を再登録
+                    for _, r in order_plan.iterrows():
+                        dt = r["納品予定日_dt"]
+                        if hasattr(dt, "date"): dt = dt.date()
+                        supabase.table("feed_order_details").insert({
+                            "order_id":       None,
+                            "flock_house_id": sel_fh_id,
+                            "feed_brand_id":  None,
+                            "order_qty":      float(r["発注量kg"]),
+                            "tank_remaining": float(r["タンク残量kg"]),
+                            "delivery_date":  str(dt),
+                            "day_age":        int(r["日齢"]),
+                            "event_notes":    str(r["発注種別"]),
+                            "pred_tank":      float(r["タンク残量kg"]),
+                            "status":         "予定",
+                        }).execute()
 
-                        # 日次入力保存のメッセージと合わせて表示
-                        _sheet_msg = st.session_state.pop("sheet_save_msg", [])
-                        _fc_msg    = f"予定配送 {len(order_plan)}件保存"
-                        _all_msg   = _sheet_msg + [_fc_msg]
-                        st.session_state["sheet_msg"] = ("success", f"✅ {' / '.join(_all_msg)}")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"保存エラー: {e}")
+                    # daily_recordsキャンセル対応
+                    _new_dates = set()
+                    for _, _r in order_plan.iterrows():
+                        _dt = _r["納品予定日_dt"]
+                        if hasattr(_dt, "date"): _dt = _dt.date()
+                        _new_dates.add(str(_dt))
+                    _old_recs = supabase.table("daily_records") \
+                        .select("daily_record_id,record_date") \
+                        .eq("flock_house_id", sel_fh_id) \
+                        .not_.is_("feed_delivery_qty", "null").execute().data
+                    for _old in _old_recs:
+                        if str(_old["record_date"]) not in _new_dates:
+                            supabase.table("daily_records").update({
+                                "feed_delivery_qty": None,
+                                "feed_brand_id":     None,
+                                "feed_order_notes":  None,
+                            }).eq("daily_record_id", _old["daily_record_id"]).execute()
 
-
-        except Exception as e:
-            st.error(f"発注予測エラー: {e}")
-            import traceback
-            st.code(traceback.format_exc())
-
+                    _sheet_msg = st.session_state.pop("sheet_save_msg", [])
+                    _fc_msg    = f"予定配送 {len(order_plan)}件保存"
+                    _all_msg   = _sheet_msg + [_fc_msg]
+                    st.session_state["sheet_msg"] = ("success", f"✅ {' / '.join(_all_msg)}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"保存エラー: {e}")
 
 with tab2:
     st.markdown("### ◆ 発注")
