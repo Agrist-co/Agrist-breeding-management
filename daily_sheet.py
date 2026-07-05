@@ -575,6 +575,14 @@ with tab1:
         sel_house = next((h for h in houses if h["house_id"] == sel_fh["house_id"]), {})
         sel_ln    = next(ln for ln in lot_numbers if ln["lot_number_id"] == sel_ln_id)
 
+        # 保存メッセージ表示
+        if "sheet_msg" in st.session_state:
+            msg_type, msg_text = st.session_state.pop("sheet_msg")
+            if msg_type == "success":
+                st.success(msg_text)
+            else:
+                st.error(msg_text)
+
         # ----------------------------------------------------------
         # 上部ヘッダー情報（DB自動取得）
         # ----------------------------------------------------------
@@ -678,6 +686,18 @@ with tab1:
 
         # ----------------------------------------------------------
         # ---- 統合DataFrame: 日次入力＋発注予測 ----
+        # ---- adj_dict（実測残量・調整発注）のセッション管理 ----
+        adj_key = f"adj_dict_{sel_fh_id}"
+        if adj_key not in st.session_state:
+            st.session_state[adj_key] = {}
+        adj_dict = st.session_state[adj_key]
+
+        # リセットボタン
+        if adj_dict:
+            if st.button("🔄 調整をリセット", key="fc_reset"):
+                st.session_state[adj_key] = {}
+                st.rerun()
+
         # df_allとdf_fcを日齢で結合
         fc_std_qty   = 4000.0   # 配送単位（kg）
         fc_min_alert = 200.0    # 最低残量アラート（kg）
