@@ -679,6 +679,9 @@ with tab1:
         # ----------------------------------------------------------
         # ---- 統合DataFrame: 日次入力＋発注予測 ----
         # df_allとdf_fcを日齢で結合
+        fc_std_qty   = 4000.0   # 配送単位（kg）
+        fc_min_alert = 200.0    # 最低残量アラート（kg）
+        fc_lead_time = 0
         df_fc = run_feed_forecast(
             sel_fh, fc_recs, house_coef,
             fc_std_qty, fc_min_alert, fc_lead_time,
