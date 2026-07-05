@@ -672,7 +672,6 @@ with tab1:
             "標準採食g":   ross.get("daily_intake_g"),
             "納品量kg":    rec.get("feed_delivery_qty"),
             "飼料銘柄":    brand_nm,
-            "飼料発注":    rec.get("feed_order_notes") or "",
             "作業日誌":    rec.get("work_log") or "",
             "担当者":      worker_map.get(rec.get("worker_id"), "") if rec.get("worker_id") else "",
             "_date":       str(rec_date),
@@ -748,7 +747,6 @@ with tab1:
         "採食時間min":df_all["採食時間min"],
         "納品量kg":   df_all["納品量kg"],
         "飼料銘柄":   df_all["飼料銘柄"],
-        "飼料発注":   df_all["飼料発注"],
         "作業日誌":   df_all["作業日誌"],
         # 発注予測列
         "採食kg(予)": df_fc["act_feed_kg"].round(1),
@@ -797,7 +795,6 @@ with tab1:
             "採食時間min":st.column_config.NumberColumn("採食\nmin",   step=0.1, format="%.1f", width=50),
             "納品量kg":   st.column_config.NumberColumn("納品\nkg",    step=100.0, width=55),
             "飼料銘柄":   st.column_config.SelectboxColumn("飼料\n銘柄", options=brand_names, width=80, disabled=True),
-            "飼料発注":   st.column_config.TextColumn(  "飼料発注",     disabled=True, width=120),
             "作業日誌":   st.column_config.TextColumn(  "作業日誌",     width=120),
             # ── 発注予測 ──
             "採食kg(予)": st.column_config.NumberColumn("採食\nkg(予)", disabled=True, width=55),
@@ -813,7 +810,31 @@ with tab1:
         key=f"unified_editor_{sel_fh_id}"
     )
 
+    # ---- Step5: 実測残量・調整発注の変更を即時検知→再計算 ----
+    new_adj = {}
+    for i, row in edited.iterrows():
+        day   = int(row["日令"])
+        entry = {}
+        if day in adj_dict:
+            if adj_dict[day].get("actual_tank") is not None:
+                entry["actual_tank"] = adj_dict[day]["actual_tank"]
+            if adj_dict[day].get("delivered"):
+                entry["delivered"] = adj_dict[day]["delivered"]
+        new_real = row.get("実測残量kg")
+        if new_real is not None and pd.notna(new_real) and day > 0:
+            entry["actual_tank"] = float(new_real)
+        new_del = row.get("調整発注kg")
+        if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
+            entry["delivered"] = float(new_del)
+        if entry:
+            new_adj[day] = entry
+
+    if new_adj != adj_dict:
+        st.session_state[adj_key] = new_adj
+        st.rerun()
+
     # ---- 保存処理 ----
+    _do_fc_save = _do_save  # 一括保存と連動
     if _do_save:
         updated  = 0
         inserted = 0
@@ -883,27 +904,6 @@ with tab1:
             except Exception as e:
                 errors.append(str(e))
 
-        # 発注予測: Step5（実測残量・調整発注の変更検知）
-        new_adj = {}
-        for i, row in edited.iterrows():
-            day   = int(row["日令"])
-            entry = {}
-            if day in adj_dict:
-                if adj_dict[day].get("actual_tank") is not None:
-                    entry["actual_tank"] = adj_dict[day]["actual_tank"]
-                if adj_dict[day].get("delivered"):
-                    entry["delivered"] = adj_dict[day]["delivered"]
-            new_real = row.get("実測残量kg")
-            if new_real is not None and pd.notna(new_real) and day > 0:
-                entry["actual_tank"] = float(new_real)
-            new_del = row.get("調整発注kg")
-            if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
-                entry["delivered"] = float(new_del)
-            if entry:
-                new_adj[day] = entry
-
-        if new_adj != adj_dict:
-            st.session_state[adj_key] = new_adj
 
         # メッセージ
         msg = []
