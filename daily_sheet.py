@@ -634,7 +634,14 @@ with tab1:
         # 採食量計算
         duration = rec.get("feed_duration_min")
         brand_id = rec.get("feed_brand_id")
-        brand_nm = brand_map.get(brand_id, "") if brand_id else ""
+        if brand_id:
+            _brand_full = brand_map.get(brand_id, "")
+            brand_nm = _brand_full.split("_")[-1] if "_" in _brand_full else _brand_full
+        else:
+            # feed_brand_idがない場合は日齢から自動判定
+            _auto_brand = get_brand_for_age(age, active_brs)
+            _brand_full = _auto_brand["brand_name"] if _auto_brand else ""
+            brand_nm = _brand_full.split("_")[-1] if "_" in _brand_full else _brand_full
         brand_obj = next((b for b in feed_brands if b["feed_brand_id"] == brand_id), {}) if brand_id else {}
         ratio    = float(brand_obj.get("transfer_coef_ratio") or 1.0)
         if duration and house_coef > 0:
@@ -753,7 +760,8 @@ with tab1:
             _day0_bid = next(
                 (b["feed_brand_id"] for b in feed_brands
                  if b.get("is_active") and (b.get("age_from_days") or 0) == 0), None)
-            _day0_bnm = brand_map.get(_day0_bid, "") if _day0_bid else ""
+            _day0_full = brand_map.get(_day0_bid, "") if _day0_bid else ""
+            _day0_bnm = _day0_full.split("_")[-1] if "_" in _day0_full else _day0_full
             df_all.at[_day0_idx, "納品量kg"] = _day0_qty
             df_all.at[_day0_idx, "飼料銘柄"] = _day0_bnm
 
@@ -775,7 +783,8 @@ with tab1:
                 .order("detail_id", desc=True).limit(1).execute().data
             _bid  = _fod[0].get("feed_brand_id") if _fod else None
             # brand_mapのキーはint型、_bidもintなので一致確認
-            _bnm  = brand_map.get(int(_bid), brand_map.get(str(_bid), "")) if _bid is not None else ""
+            _bnm_full = brand_map.get(int(_bid), brand_map.get(str(_bid), "")) if _bid is not None else ""
+            _bnm = _bnm_full.split("_")[-1] if "_" in _bnm_full else _bnm_full
             # event_notesから銘柄名を補完
             if not _bnm and _fod:
                 _raw = _fod[0].get("event_notes") or ""
@@ -784,7 +793,7 @@ with tab1:
                 for _bn, _bi in brand_opts.items():
                     _short = _bn.split("_")[-1] if "_" in _bn else _bn
                     if _short in _note or _bn in _note:
-                        _bnm = _bn
+                        _bnm = _short  # 短縮名を使用
                         break
             df_all.at[_idx, "納品量kg"]  = float(_adj_del)
             df_all.at[_idx, "飼料銘柄"]  = _bnm
