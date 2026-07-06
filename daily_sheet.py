@@ -991,6 +991,10 @@ with tab1:
                     _raw_notes   = _fod[0].get("event_notes") or ""
                     _order_notes = re.sub(r"^\[.*?\]\s*", "", re.sub(r"^(最終|納品): ", "", _raw_notes))
                     _brand_id_del = _fod[0].get("feed_brand_id")
+            # 納品量が空欄の場合はNULLでクリア（前日移動に対応）
+            _delivery_qty_save = _delivery_qty if _delivery_qty and _delivery_qty > 0 else None
+            _brand_save  = _brand_id_del if _delivery_qty_save else None
+            _notes_save  = _order_notes  if _delivery_qty_save else None
 
             data_update = {
                 "mortality_count":   int(row["斃死"])  if pd.notna(row["斃死"])  else 0,
@@ -1003,9 +1007,9 @@ with tab1:
                 "avg_body_weight":   float(row["平均体重g"])  if pd.notna(row["平均体重g"])  and float(row["平均体重g"] or 0) > 0 else None,
                 "feed_duration_min": float(row["採食時間min"]) if pd.notna(row["採食時間min"]) and float(row["採食時間min"] or 0) > 0 else None,
                 "work_log":          str(row["作業日誌"]) if pd.notna(row.get("作業日誌")) and row["作業日誌"] else None,
-                "feed_delivery_qty": _delivery_qty,
-                "feed_brand_id":     _brand_id_del,
-                "feed_order_notes":  _order_notes,
+                "feed_delivery_qty": _delivery_qty_save,
+                "feed_brand_id":     _brand_save,
+                "feed_order_notes":  _notes_save,
             }
             data_insert = {**data_update, "flock_house_id": sel_fh_id, "record_date": rec_date}
 
