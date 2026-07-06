@@ -1073,9 +1073,8 @@ with tab1:
                     .execute().data
                 _del_ids = [r["detail_id"] for r in _del_targets
                             if r.get("actual_tank_remaining") is None]
-                for _did in _del_ids:
-                    supabase.table("feed_order_details") \
-                        .delete().eq("detail_id", _did).execute()
+                if _del_ids:
+                    supabase.table("feed_order_details").delete().in_("detail_id", _del_ids).execute()
 
                 # 予定配送を再登録
                 for _, r in order_plan.iterrows():
@@ -1201,9 +1200,13 @@ with tab2:
                 ob_info.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
 
                 disp_sel = df_sel[["delivery_date","house_name","order_qty","event_notes","status"]].copy()
-                # event_notesのメーカー名を除去
-                disp_sel["event_notes"] = disp_sel["event_notes"].apply(
-                    lambda x: re.sub(r"[^ ＋]+_", "", str(x)) if x else "")
+                # event_notesの[確定]タグとメーカー名を除去
+                def _clean_notes(x):
+                    if not x: return ""
+                    x = re.sub(r"^\[.*?\]\s*", "", str(x))  # [確定]等を除去
+                    x = re.sub(r"[^ ＋,0-9kgA-Za-z仕上前期中期最終]+_", "", x)  # メーカー名を除去
+                    return x.strip()
+                disp_sel["event_notes"] = disp_sel["event_notes"].apply(_clean_notes)
                 disp_sel.columns = ["納品予定日","鶏舎","発注量kg","発注内容","状況"]
                 disp_sel = disp_sel.sort_values("納品予定日").reset_index(drop=True)
                 st.dataframe(disp_sel, use_container_width=True, hide_index=True)
