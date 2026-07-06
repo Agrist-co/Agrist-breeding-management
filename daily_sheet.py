@@ -973,7 +973,9 @@ with tab1:
                 pd.notna(row.get("納品量kg")) and row.get("納品量kg") != 0,
                 bool(row.get("作業日誌")),
             ])
-            if not has_data:
+            # 既存レコードがある場合は納品量クリアのために必ず処理（skipしない）
+            has_existing = rec_id and pd.notna(rec_id)
+            if not has_data and not has_existing:
                 skipped += 1
                 continue
 
