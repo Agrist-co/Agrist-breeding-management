@@ -612,7 +612,12 @@ with tab1:
     # ----------------------------------------------------------
     # 全日齢分のDataFrameを構築（日齢0〜出荷日齢）
     # ----------------------------------------------------------
-    brand_names  = [""] + list(brand_opts.keys())
+    # 銘柄名を短縮名（_以降）で管理
+    brand_opts_short = {
+        (b["brand_name"].split("_")[-1] if "_" in b["brand_name"] else b["brand_name"]): b["feed_brand_id"]
+        for b in feed_brands
+    }
+    brand_names  = [""] + list(brand_opts_short.keys())
     worker_names = [""] + list(worker_opts.keys())
 
     rows = []
@@ -969,7 +974,7 @@ with tab1:
             orig = df_all.iloc[i]
             rec_date = chick_in_date + timedelta(days=int(row["日令"]))
             rec_id   = orig.get("_id")
-            brand_id = next((bid for bname, bid in brand_opts.items()
+            brand_id = next((bid for bname, bid in brand_opts_short.items()
                              if bname == row.get("飼料銘柄")), None) if row.get("飼料銘柄") else None
 
             has_data = any([
