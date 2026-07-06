@@ -643,11 +643,7 @@ with tab1:
             _brand_full = brand_map.get(brand_id, "")
             brand_nm = _brand_full.split("_")[-1] if "_" in _brand_full else _brand_full
         else:
-            # feed_brand_idがない場合は日齢から自動判定
-            _active_brs_disp = [b for b in feed_brands if b.get("is_active") not in (None, False, 0, "false", "0", "")]
-            _auto_brand = get_brand_for_age(age, _active_brs_disp)
-            _brand_full = _auto_brand["brand_name"] if _auto_brand else ""
-            brand_nm = _brand_full.split("_")[-1] if "_" in _brand_full else _brand_full
+            brand_nm = ""  # 納品がない日は空白
         brand_obj = next((b for b in feed_brands if b["feed_brand_id"] == brand_id), {}) if brand_id else {}
         ratio    = float(brand_obj.get("transfer_coef_ratio") or 1.0)
         if duration and house_coef > 0:
