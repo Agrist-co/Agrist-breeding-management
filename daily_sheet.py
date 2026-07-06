@@ -341,9 +341,14 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
              if b.get("age_to_days") is not None
              and b != starter_brand), None) if _grower_total > 0 else None
 
-        s_name = starter_brand["brand_name"] if starter_brand else "前期"
-        g_name = grower_brand["brand_name"]  if grower_brand  else "中期"
-        f_name = finish_brand["brand_name"]  if finish_brand  else "仕上"
+        # メーカー名を除去（「全農_前期」→「前期」）
+        def _short_name(brand, default):
+            if not brand: return default
+            n = brand["brand_name"]
+            return n.split("_")[-1] if "_" in n else n
+        s_name = _short_name(starter_brand, "前期")
+        g_name = _short_name(grower_brand,  "中期")
+        f_name = _short_name(finish_brand,  "仕上")
 
         s_remain = max(_starter_total - _starter_delivered[0], 0.0)
         g_remain = max(_grower_total  - _grower_delivered[0],  0.0) if _grower_total > 0 else 0.0
@@ -381,7 +386,8 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     real_tank[0]   = first_qty
     _day0_brand      = get_brand_for_age(0, active_brs)
     _day0_brand_name = _day0_brand["brand_name"] if _day0_brand else "前期"
-    event_notes[0]   = f"{_day0_brand_name} {first_qty:,.0f}kg" if first_qty > 0 else ""
+    _day0_short = _day0_brand_name.split("_")[-1] if _day0_brand_name and "_" in _day0_brand_name else (_day0_brand_name or "前期")
+    event_notes[0]   = f"{_day0_short} {first_qty:,.0f}kg" if first_qty > 0 else ""
     _starter_delivered[0] += first_qty  # 初回投入分を前期累計に加算
     day0_feed    = df.loc[0, "act_feed_kg"]
     evening_pred = first_qty - day0_feed
@@ -841,6 +847,53 @@ with tab1:
 
     if new_adj != adj_dict:
         st.session_state[adj_key] = new_adj
+        # 調整発注が変更された日の納品量・銘柄をdaily_recordsに即時反映
+        for _day_str, _v in new_adj.items():
+            _day = int(_day_str)
+            _new_del = _v.get("delivered")
+            _old_del = adj_dict.get(_day_str, {}).get("delivered") if isinstance(_day_str, str) else adj_dict.get(_day, {}).get("delivered")
+            # 調整発注が変更・削除された場合
+            if _new_del != _old_del:
+                _del_date = str(chick_in_date + timedelta(days=_day))
+                _exists = supabase.table("daily_records") \
+                    .select("daily_record_id") \
+                    .eq("flock_house_id", sel_fh_id) \
+                    .eq("record_date", _del_date).execute().data
+                if _new_del and _new_del > 0:
+                    # 発注内容から銘柄を取得
+                    _fod = supabase.table("feed_order_details") \
+                        .select("event_notes,feed_brand_id") \
+                        .eq("flock_house_id", sel_fh_id) \
+                        .eq("delivery_date", _del_date) \
+                        .order("detail_id", desc=True).limit(1).execute().data
+                    _notes   = re.sub(r"^\[.*?\]\s*", "", re.sub(r"^(最終|納品): ", "", _fod[0].get("event_notes") or "")) if _fod else ""
+                    _brand   = _fod[0].get("feed_brand_id") if _fod else None
+                    _upd = {"feed_delivery_qty": float(_new_del), "feed_brand_id": _brand, "feed_order_notes": _notes}
+                else:
+                    # クリア
+                    _upd = {"feed_delivery_qty": None, "feed_brand_id": None, "feed_order_notes": None}
+                if _exists:
+                    supabase.table("daily_records").update(_upd) \
+                        .eq("daily_record_id", _exists[0]["daily_record_id"]).execute()
+                elif _new_del and _new_del > 0:
+                    supabase.table("daily_records").insert({
+                        **_upd, "flock_house_id": sel_fh_id, "record_date": _del_date
+                    }).execute()
+        # 削除された調整発注をクリア
+        for _day in list(adj_dict.keys()):
+            _day_int = int(_day)
+            if _day_int not in [int(k) for k in new_adj.keys()]:
+                _old_del = adj_dict[_day].get("delivered")
+                if _old_del:
+                    _del_date = str(chick_in_date + timedelta(days=_day_int))
+                    _exists = supabase.table("daily_records") \
+                        .select("daily_record_id") \
+                        .eq("flock_house_id", sel_fh_id) \
+                        .eq("record_date", _del_date).execute().data
+                    if _exists:
+                        supabase.table("daily_records").update({
+                            "feed_delivery_qty": None, "feed_brand_id": None, "feed_order_notes": None
+                        }).eq("daily_record_id", _exists[0]["daily_record_id"]).execute()
         st.rerun()
 
     # ---- 保存処理 ----
