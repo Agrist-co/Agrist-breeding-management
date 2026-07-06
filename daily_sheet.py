@@ -705,16 +705,28 @@ with tab1:
 
     # デバッグ
     with st.expander("🔍 発注デバッグ", expanded=False):
-        st.write(f"min_alert={fc_min_alert}, std_qty={fc_std_qty}")
-        st.write(f"初回投入量(fh)={float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
-        st.write(f"前期標準採食合計(0〜前期末)={df_fc.loc[df_fc['day']<=18,'std_feed_kg'].sum():.0f}kg")
-        _dbg_orders = df_fc[df_fc["delivery_kg"] > 0][["day","date_str","adj_rate","pred_tank","delivery_kg","event_notes"]]
-        st.write(f"発注あり行:")
-        st.dataframe(_dbg_orders.round(3), hide_index=True)
-        _del_recs = [(int((date.fromisoformat(r['record_date'])-chick_in_date).days), r.get('feed_delivery_qty'))
-                     for r in fc_recs if r.get('feed_delivery_qty') and float(r['feed_delivery_qty']) > 0]
-        st.write(f"daily_records納品データ: {_del_recs}")
         st.write(f"adj_dict: {adj_dict}")
+        st.write(f"初回投入量: {float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
+        # 区間ごとの補正率計算内容
+        _dbg_rows = []
+        _s0 = 0
+        _s0_tank = float(sel_fh.get("initial_feed_delivery_qty") or 0)
+        for _d_str, _v in sorted(adj_dict.items(), key=lambda x: int(x[0])):
+            _d = int(_d_str)
+            _e_tank = _v.get("actual_tank")
+            if _e_tank is None: continue
+            _std_sum = df_fc.loc[(df_fc["day"] >= _s0) & (df_fc["day"] < _d), "std_feed_kg"].sum()
+            _consumed = _s0_tank - float(_e_tank)
+            _rate = round(_consumed / _std_sum, 3) if _std_sum > 0 else 0
+            _dbg_rows.append({"区間": f"{_s0}→{_d}", "s_tank": _s0_tank,
+                              "e_tank": _e_tank, "consumed": round(_consumed,1),
+                              "std_sum": round(_std_sum,1), "rate": _rate})
+            _s0 = _d
+            _s0_tank = float(_e_tank)
+        if _dbg_rows:
+            st.dataframe(pd.DataFrame(_dbg_rows), hide_index=True)
+        st.dataframe(df_fc[["day","date_str","adj_rate","std_feed_kg","pred_tank","delivery_kg"]].round(3), hide_index=True)
+
 
     # 調整発注（adj_dictから）
     adj_delivery = {day: v.get("delivered") for day, v in adj_dict.items() if v.get("delivered")}
