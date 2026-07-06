@@ -188,11 +188,11 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     days = list(range(0, shipping_age))  # 出荷日(shipping_age)は含まない
     std_feed = []
     for d in days:
-        r   = get_ross308(d)
-        std = (r.get("daily_intake_g") or 0) * total_birds / 1000
-        env = get_env_correction(avg_temp, avg_hum, r.get("weight_g") or 1000)
-        kg  = std * env * weighted_corr
-        if d == shipping_age - 1: kg *= 0.75  # 出荷前日18時給餌停止
+        r    = get_ross308(d)
+        std  = (r.get("daily_intake_g") or 0) * total_birds / 1000
+        env  = get_env_correction(avg_temp, avg_hum, r.get("weight_g") or 1000)
+        kg   = std * env  # 純粋標準値（weighted_corrは後でadj_rateとして乗算）
+        if d == shipping_age - 1: kg *= 0.75
         std_feed.append(kg)
 
     df = pd.DataFrame({"day": days, "std_feed_kg": std_feed})
