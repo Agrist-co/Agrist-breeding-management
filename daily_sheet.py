@@ -743,13 +743,15 @@ with tab1:
 
 
     # 調整発注（adj_dictから）
-    adj_delivery = {day: v.get("delivered") for day, v in adj_dict.items() if v.get("delivered")}
+    adj_delivery = {int(day): v.get("delivered") for day, v in adj_dict.items() if v.get("delivered")}
 
     # 実測残量
     def _get_real(row):
         d = int(row["day"])
-        if d in adj_dict and adj_dict[d].get("actual_tank") is not None:
-            return float(adj_dict[d]["actual_tank"])
+        # adj_dictのキーは文字列または整数どちらの場合もある
+        _v = adj_dict.get(d) or adj_dict.get(str(d))
+        if _v and _v.get("actual_tank") is not None:
+            return float(_v["actual_tank"])
         rt = row["real_tank"]
         return float(rt) if not (isinstance(rt, float) and np.isnan(rt)) else None
 
@@ -893,7 +895,7 @@ with tab1:
             if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
                 entry["delivered"] = float(new_del)
         if entry:
-            new_adj[day] = entry
+            new_adj[str(day)] = entry  # キーを文字列に統一
 
     if new_adj != adj_dict:
         st.session_state[adj_key] = new_adj
@@ -1560,3 +1562,5 @@ with tab3:
         plt.close()
     else:
         st.info("記録がありません")
+
+
