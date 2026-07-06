@@ -699,7 +699,13 @@ with tab1:
         st.write(f"初回投入量: {float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
         st.write(f"feed_correction_factor(DB): {sel_fh.get('feed_correction_factor')}")
         st.write(f"weighted_corr: {float(sel_fh.get('feed_correction_factor') or 1.0)}")
-        st.write(f"act_dict: {act_dict}")
+        # feed_order_detailsの実測残量確認
+        _fod_debug = supabase.table("feed_order_details") \
+            .select("delivery_date,actual_tank_remaining,order_qty") \
+            .eq("flock_house_id", sel_fh_id) \
+            .not_.is_("actual_tank_remaining", "null") \
+            .execute().data
+        st.write(f"feed_order_details実測残量: {_fod_debug}")
         # 区間ごとの補正率計算内容
         _dbg_rows = []
         _s0 = 0
