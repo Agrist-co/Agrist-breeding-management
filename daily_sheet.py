@@ -1142,7 +1142,15 @@ with tab2:
                 .eq("flock_house_id", fh_id) \
                 .in_("status", ["予定", "発注済"]) \
                 .order("delivery_date").execute().data
-            rows = [r for r in rows if r.get("delivery_date") and float(r.get("order_qty") or 0) > 0]
+            # order_qty>0かつ、同一日付で最新のレコードのみ保持
+            _seen_dates = {}
+            for r in rows:
+                if r.get("delivery_date") and float(r.get("order_qty") or 0) > 0:
+                    _dt = r["delivery_date"]
+                    # 同一日付は最新(detail_id大)を優先
+                    if _dt not in _seen_dates or r["detail_id"] > _seen_dates[_dt]["detail_id"]:
+                        _seen_dates[_dt] = r
+            rows = list(_seen_dates.values())
             for row in rows:
                 fh_obj = next((f for f in o_farm_fhs if f["flock_house_id"] == fh_id), {})
                 ln_obj = next((ln for ln in lot_numbers if ln["lot_number_id"] == fh_obj.get("lot_number_id")), {})
@@ -1201,6 +1209,9 @@ with tab2:
                 ob_info.markdown(f"**対象: {len(df_sel)}件　合計: {o_total:,.0f} kg**")
 
                 disp_sel = df_sel[["delivery_date","house_name","order_qty","event_notes","status"]].copy()
+                # event_notesのメーカー名を除去
+                disp_sel["event_notes"] = disp_sel["event_notes"].apply(
+                    lambda x: re.sub(r"[^ ＋]+_", "", str(x)) if x else "")
                 disp_sel.columns = ["納品予定日","鶏舎","発注量kg","発注内容","状況"]
                 disp_sel = disp_sel.sort_values("納品予定日").reset_index(drop=True)
                 st.dataframe(disp_sel, use_container_width=True, hide_index=True)
