@@ -1094,24 +1094,6 @@ with tab1:
                         "status":         "予定",
                     }).execute()
 
-                # daily_recordsキャンセル対応
-                _new_dates = set()
-                for _, _r in order_plan.iterrows():
-                    _dt = _r["納品予定日_dt"]
-                    if hasattr(_dt, "date"): _dt = _dt.date()
-                    _new_dates.add(str(_dt))
-                _old_recs = supabase.table("daily_records") \
-                    .select("daily_record_id,record_date") \
-                    .eq("flock_house_id", sel_fh_id) \
-                    .not_.is_("feed_delivery_qty", "null").execute().data
-                for _old in _old_recs:
-                    if str(_old["record_date"]) not in _new_dates:
-                        supabase.table("daily_records").update({
-                            "feed_delivery_qty": None,
-                            "feed_brand_id":     None,
-                            "feed_order_notes":  None,
-                        }).eq("daily_record_id", _old["daily_record_id"]).execute()
-
                 _sheet_msg = st.session_state.pop("sheet_save_msg", [])
                 _fc_msg    = f"予定配送 {len(order_plan)}件保存"
                 _all_msg   = _sheet_msg + [_fc_msg]
