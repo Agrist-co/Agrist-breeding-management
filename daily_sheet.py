@@ -1140,8 +1140,9 @@ with tab2:
             rows = supabase.table("feed_order_details") \
                 .select("*") \
                 .eq("flock_house_id", fh_id) \
+                .in_("status", ["予定", "発注済"]) \
                 .order("delivery_date").execute().data
-            rows = [r for r in rows if r.get("delivery_date")]
+            rows = [r for r in rows if r.get("delivery_date") and float(r.get("order_qty") or 0) > 0]
             for row in rows:
                 fh_obj = next((f for f in o_farm_fhs if f["flock_house_id"] == fh_id), {})
                 ln_obj = next((ln for ln in lot_numbers if ln["lot_number_id"] == fh_obj.get("lot_number_id")), {})
