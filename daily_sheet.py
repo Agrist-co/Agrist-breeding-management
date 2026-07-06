@@ -425,31 +425,18 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             else:
                 evening_pred   = pred_tank[d] + adj_qty - daily_feed
 
-        # ── 優先3: 日次記録あり（採食時間 or 納品量） ──
-        elif r and (r.get("feed_duration_min") or r.get("feed_delivery_qty")):
-            dt = float(r.get("feed_delivery_qty") or 0)
-            if house_coef > 0 and r.get("feed_duration_min"):
+        # ── 優先3: 日次記録あり（採食時間のみ参照・納品量は発注予測に使わない） ──
+        elif r and r.get("feed_duration_min"):
+            if house_coef > 0:
                 bid   = r.get("feed_brand_id")
                 bobj  = next((b for b in feed_brands if b["feed_brand_id"] == bid), {})                         if bid else get_brand_for_age(d, active_brs) or {}
                 ratio = float(bobj.get("transfer_coef_ratio") or 1.0)
                 ri    = float(r["feed_duration_min"]) * house_coef * ratio
-                actual_feed[d] = ri  # 実績採食量（表示用）
-            # 予測残量は補正後標準値で計算（実績採食時間は使わない）
-            evening_pred = pred_tank[d] + dt - daily_feed
-            if dt > 0:
-                delivery_kg[d] = dt
-                # 銘柄名を取得して発注内容に表示
-                _r_bid   = r.get("feed_brand_id")
-                _r_bname = next((b["brand_name"] for b in feed_brands if b["feed_brand_id"] == _r_bid), "") if _r_bid else ""
-                _r_notes = r.get("feed_order_notes") or ""
-                if _r_notes and not _r_notes.startswith("納品"):
-                    event_notes[d] = _r_notes
-                elif _r_bname:
-                    event_notes[d] = f"{_r_bname} {dt:,.0f}kg"
-                else:
-                    event_notes[d] = f"{dt:,.0f}kg"
-            # 日次記録があっても納品なし＆タンク警戒以下なら発注計算
-            if pred_tank[d] <= min_alert and dt == 0:
+                actual_feed[d] = ri  # 実績採食量（表示用のみ）
+            # 予測残量は補正後標準値で計算
+            evening_pred = pred_tank[d] - daily_feed
+            # タンク警戒以下なら発注計算
+            if pred_tank[d] <= min_alert:
                 _d_idx      = day_to_idx.get(d, d)
                 future_need = float(
                     (df.loc[_d_idx:, "std_feed_kg"] * df.loc[_d_idx:, "adj_rate"]).sum()
