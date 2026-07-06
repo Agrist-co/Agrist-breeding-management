@@ -744,6 +744,32 @@ with tab1:
         rt = row["real_tank"]
         return float(rt) if not (isinstance(rt, float) and np.isnan(rt)) else None
 
+    # 調整発注日の納品情報をfeed_order_detailsから取得してdf_allに反映
+    for _adj_day_str, _adj_v in adj_dict.items():
+        _adj_del = _adj_v.get("delivered")
+        _adj_date = str(chick_in_date + timedelta(days=int(_adj_day_str)))
+        # df_allの該当行インデックスを取得
+        _mask = df_all["_date"] == _adj_date
+        if not _mask.any():
+            continue
+        _idx = df_all[_mask].index[0]
+        if _adj_del and float(_adj_del) > 0:
+            # feed_order_detailsから銘柄・内容を取得
+            _fod = supabase.table("feed_order_details") \
+                .select("event_notes,feed_brand_id") \
+                .eq("flock_house_id", sel_fh_id) \
+                .eq("delivery_date", _adj_date) \
+                .order("detail_id", desc=True).limit(1).execute().data
+            _bid  = _fod[0].get("feed_brand_id") if _fod else None
+            _bnm  = brand_map.get(_bid, "") if _bid else ""
+            df_all.at[_idx, "納品量kg"]  = float(_adj_del)
+            df_all.at[_idx, "飼料銘柄"]  = _bnm
+        else:
+            # クリア（daily_recordsに実績がない場合のみ）
+            if not rec_by_date.get(_adj_date, {}).get("feed_delivery_qty"):
+                df_all.at[_idx, "納品量kg"]  = None
+                df_all.at[_idx, "飼料銘柄"]  = ""
+
     # 統合DataFrameを構築
     today_day_fc = (date.today() - chick_in_date).days
     edit_df = pd.DataFrame({
