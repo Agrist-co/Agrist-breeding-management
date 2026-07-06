@@ -686,6 +686,9 @@ with tab1:
     adj_key = f"adj_dict_{sel_fh_id}"
     if adj_key not in st.session_state:
         st.session_state[adj_key] = {}
+    # 日齢0のdeliveredは除去（初回投入はfirst_qtyで固定）
+    if 0 in st.session_state.get(adj_key, {}):
+        st.session_state[adj_key].pop(0, None)
     adj_dict = st.session_state[adj_key]
 
     # リセットボタン
@@ -835,9 +838,11 @@ with tab1:
         new_real = row.get("実測残量kg")
         if new_real is not None and pd.notna(new_real) and day > 0:
             entry["actual_tank"] = float(new_real)
-        new_del = row.get("調整発注kg")
-        if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
-            entry["delivered"] = float(new_del)
+        # 日齢0は調整発注を保存しない（初回投入はfirst_qtyで固定）
+        if day > 0:
+            new_del = row.get("調整発注kg")
+            if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
+                entry["delivered"] = float(new_del)
         if entry:
             new_adj[day] = entry
 
