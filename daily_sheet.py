@@ -1028,6 +1028,16 @@ with tab1:
             if skipped  > 0: msg.append(f"未入力スキップ {skipped}件")
             st.session_state["sheet_save_msg"] = msg
 
+        # order_plan: df_fcから発注予定行を抽出
+        order_plan = df_fc[df_fc["delivery_kg"] > 0].copy()
+        if not order_plan.empty:
+            order_plan["納品予定日_dt"] = order_plan["date_obj"]
+            order_plan["納品予定日"]    = order_plan["date_str"]
+            order_plan["日齢"]          = order_plan["day"].astype(int)
+            order_plan["発注量kg"]      = order_plan["delivery_kg"].round(0)
+            order_plan["発注種別"]      = order_plan["event_notes"]
+            order_plan["タンク残量kg"]  = order_plan["pred_tank"].round(0)
+
         # 発注予測の保存（_do_fc_save連動）
         if _do_fc_save and not order_plan.empty:
             try:
