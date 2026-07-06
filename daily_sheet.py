@@ -697,6 +697,9 @@ with tab1:
     with st.expander("🔍 発注デバッグ", expanded=False):
         st.write(f"adj_dict: {adj_dict}")
         st.write(f"初回投入量: {float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
+        st.write(f"feed_correction_factor(DB): {sel_fh.get('feed_correction_factor')}")
+        st.write(f"adj_rate[2〜5]: {df_fc.loc[df_fc['day'].isin([2,3,4,5]),'adj_rate'].tolist()}")
+        st.write(f"std_feed_kg[2〜5]: {df_fc.loc[df_fc['day'].isin([2,3,4,5]),'std_feed_kg'].tolist()}")
         # 区間ごとの補正率計算内容
         _dbg_rows = []
         _s0 = 0
