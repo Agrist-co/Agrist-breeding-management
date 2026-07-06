@@ -744,6 +744,19 @@ with tab1:
         rt = row["real_tank"]
         return float(rt) if not (isinstance(rt, float) and np.isnan(rt)) else None
 
+    # 日齢0（初期投入）の納品量・銘柄をdf_allに反映
+    _day0_mask = df_all["_date"] == str(chick_in_date)
+    if _day0_mask.any():
+        _day0_idx = df_all[_day0_mask].index[0]
+        _day0_qty = float(sel_fh.get("initial_feed_delivery_qty") or 0)
+        if _day0_qty > 0:
+            _day0_bid = next(
+                (b["feed_brand_id"] for b in feed_brands
+                 if b.get("is_active") and (b.get("age_from_days") or 0) == 0), None)
+            _day0_bnm = brand_map.get(_day0_bid, "") if _day0_bid else ""
+            df_all.at[_day0_idx, "納品量kg"] = _day0_qty
+            df_all.at[_day0_idx, "飼料銘柄"] = _day0_bnm
+
     # 調整発注日の納品情報をfeed_order_detailsから取得してdf_allに反映
     for _adj_day_str, _adj_v in adj_dict.items():
         _adj_del = _adj_v.get("delivered")
@@ -761,7 +774,18 @@ with tab1:
                 .eq("delivery_date", _adj_date) \
                 .order("detail_id", desc=True).limit(1).execute().data
             _bid  = _fod[0].get("feed_brand_id") if _fod else None
-            _bnm  = brand_map.get(_bid, "") if _bid else ""
+            # brand_mapのキーはint型、_bidもintなので一致確認
+            _bnm  = brand_map.get(int(_bid), brand_map.get(str(_bid), "")) if _bid is not None else ""
+            # event_notesから銘柄名を補完
+            if not _bnm and _fod:
+                _raw = _fod[0].get("event_notes") or ""
+                _note = re.sub(r"^\[.*?\]\s*", "", re.sub(r"^(最終|納品): ", "", _raw))
+                # 銘柄名をbrand_optsから検索
+                for _bn, _bi in brand_opts.items():
+                    _short = _bn.split("_")[-1] if "_" in _bn else _bn
+                    if _short in _note or _bn in _note:
+                        _bnm = _bn
+                        break
             df_all.at[_idx, "納品量kg"]  = float(_adj_del)
             df_all.at[_idx, "飼料銘柄"]  = _bnm
         else:
