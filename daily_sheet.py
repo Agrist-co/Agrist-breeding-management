@@ -711,6 +711,7 @@ with tab1:
     # デバッグ
     with st.expander("🔍 発注デバッグ", expanded=False):
         st.write(f"adj_dict: {adj_dict}")
+        st.write(f"adj_dictキー型: {[type(k).__name__ for k in adj_dict.keys()]}")
         st.write(f"初回投入量: {float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
         st.write(f"feed_correction_factor(DB): {sel_fh.get('feed_correction_factor')}")
         st.write(f"weighted_corr: {float(sel_fh.get('feed_correction_factor') or 1.0)}")
@@ -1562,5 +1563,3 @@ with tab3:
         plt.close()
     else:
         st.info("記録がありません")
-
-
