@@ -257,18 +257,18 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             s_delivery = combined_tank[s].get("delivered", 0)
             if s_delivery == 0 and s in adj_delivery_map:
                 s_delivery = adj_delivery_map[s]
-            if s_delivery == 0 and s in rec_by_day:
-                s_delivery = float(rec_by_day[s].get("feed_delivery_qty") or 0)
+            # daily_recordsの実績納品は参照しない
             s_tank     = s_tank_raw + s_delivery
             e_tank     = combined_tank[e]["actual_tank"]
 
-            # 区間内の途中納品量（s+1〜e-1のみ、e日の納品は次区間の起点に含まれる）
+            # 区間内の途中納品量（s+1〜e-1のみ）
+            # daily_recordsの実績納品は参照しない（発注予測は独立）
             delivered_between = 0.0
             for dd in range(s + 1, e):
                 if dd in combined_tank:
                     delivered_between += combined_tank[dd].get("delivered", 0)
-                elif dd in rec_by_day:
-                    delivered_between += float(rec_by_day[dd].get("feed_delivery_qty") or 0)
+                elif dd in adj_delivery_map:
+                    delivered_between += adj_delivery_map[dd]
 
             consumed = s_tank + delivered_between - e_tank
             # 区間s〜e-1の標準採食量合計（補正率計算の分母は常にstd_feed_kg）
