@@ -822,19 +822,16 @@ with tab1:
     )
 
     # ---- Step5: 実測残量・調整発注の変更を即時検知→再計算 ----
+    # セルの現在値のみで判断（adj_dictの引き継ぎはしない）
     new_adj = {}
     for i, row in edited.iterrows():
         day   = int(row["日令"])
         entry = {}
-        if day in adj_dict:
-            if adj_dict[day].get("actual_tank") is not None:
-                entry["actual_tank"] = adj_dict[day]["actual_tank"]
-            if adj_dict[day].get("delivered"):
-                entry["delivered"] = adj_dict[day]["delivered"]
+        # 実測残量: セルに値があれば保存、空欄なら削除（元の予測に戻す）
         new_real = row.get("実測残量kg")
         if new_real is not None and pd.notna(new_real) and day > 0:
             entry["actual_tank"] = float(new_real)
-        # 日齢0は調整発注を保存しない（初回投入はfirst_qtyで固定）
+        # 調整発注: 日齢0は除外、セルに値があれば保存
         if day > 0:
             new_del = row.get("調整発注kg")
             if new_del is not None and pd.notna(new_del) and float(new_del) > 0:
