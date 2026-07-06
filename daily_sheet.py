@@ -784,19 +784,25 @@ with tab1:
                 .eq("delivery_date", _adj_date) \
                 .order("detail_id", desc=True).limit(1).execute().data
             _bid  = _fod[0].get("feed_brand_id") if _fod else None
-            # brand_mapのキーはint型、_bidもintなので一致確認
-            _bnm_full = brand_map.get(int(_bid), brand_map.get(str(_bid), "")) if _bid is not None else ""
-            _bnm = _bnm_full.split("_")[-1] if "_" in _bnm_full else _bnm_full
-            # event_notesから銘柄名を補完
-            if not _bnm and _fod:
-                _raw = _fod[0].get("event_notes") or ""
+            _bnm  = ""
+            if _bid is not None:
+                _bnm_full = brand_map.get(int(_bid), brand_map.get(str(_bid), ""))
+                _bnm = _bnm_full.split("_")[-1] if "_" in _bnm_full else _bnm_full
+            # feed_brand_idがない場合はevent_notesから銘柄を推定
+            if not _bnm:
+                _raw = _fod[0].get("event_notes") or "" if _fod else ""
                 _note = re.sub(r"^\[.*?\]\s*", "", re.sub(r"^(最終|納品): ", "", _raw))
-                # 銘柄名をbrand_optsから検索
-                for _bn, _bi in brand_opts.items():
-                    _short = _bn.split("_")[-1] if "_" in _bn else _bn
-                    if _short in _note or _bn in _note:
-                        _bnm = _short  # 短縮名を使用
+                for _bn, _bi in brand_opts_short.items():
+                    if _bn in _note:
+                        _bnm = _bn
                         break
+            # それでも取得できない場合は日齢から判定
+            if not _bnm:
+                _active_brs_t = [b for b in feed_brands if b.get("is_active") not in (None, False, 0, "false", "0", "")]
+                _auto = get_brand_for_age(int(_adj_day_str), _active_brs_t)
+                if _auto:
+                    _full = _auto["brand_name"]
+                    _bnm = _full.split("_")[-1] if "_" in _full else _full
             df_all.at[_idx, "納品量kg"]  = float(_adj_del)
             df_all.at[_idx, "飼料銘柄"]  = _bnm
         else:
