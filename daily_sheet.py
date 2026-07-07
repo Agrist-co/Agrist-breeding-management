@@ -251,18 +251,12 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
     if len(sorted_act) > 1:
         for i in range(len(sorted_act) - 1):
             s, e = sorted_act[i], sorted_act[i+1]
-            # s_tank = 実測残量 + s日の納品量（実測後に投入される分）
-            # delivered: combined_tank → adj_delivery_map → rec_by_day の順で取得
+            # 補正率計算: 実測残量のみを使用（調整発注は含めない）
+            # consumed = s日の実測残量 + 区間内の調整発注 - e日の実測残量
             s_tank_raw = combined_tank[s]["actual_tank"]
-            s_delivery = combined_tank[s].get("delivered", 0)
-            if s_delivery == 0 and s in adj_delivery_map:
-                s_delivery = adj_delivery_map[s]
-            # daily_recordsの実績納品は参照しない
-            s_tank     = s_tank_raw + s_delivery
             e_tank     = combined_tank[e]["actual_tank"]
 
-            # 区間内の途中納品量（s+1〜e-1のみ）
-            # daily_recordsの実績納品は参照しない（発注予測は独立）
+            # 区間内（s+1〜e-1）の調整発注量を加算
             delivered_between = 0.0
             for dd in range(s + 1, e):
                 if dd in combined_tank:
@@ -270,7 +264,12 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
                 elif dd in adj_delivery_map:
                     delivered_between += adj_delivery_map[dd]
 
-            consumed = s_tank + delivered_between - e_tank
+            # s日の調整発注も加算（s日に納品して翌日から消費が始まる場合）
+            s_delivery = combined_tank[s].get("delivered", 0)
+            if s_delivery == 0 and s in adj_delivery_map:
+                s_delivery = adj_delivery_map[s]
+
+            consumed = s_tank_raw + s_delivery + delivered_between - e_tank
             # 区間s〜e-1の標準採食量合計（補正率計算の分母は常にstd_feed_kg）
             actual_cons = sum(
                 df.loc[day_to_idx[d], "std_feed_kg"]
@@ -752,10 +751,12 @@ with tab1:
             _d = int(_d_str)
             _e_tank = _v.get("actual_tank")
             if _e_tank is None: continue
+            _s_del = adj_dict.get(str(_s0), {}).get("delivered") or adj_dict.get(_s0, {}).get("delivered") or 0
             _std_sum = df_fc.loc[(df_fc["day"] >= _s0) & (df_fc["day"] < _d), "std_feed_kg"].sum()
-            _consumed = _s0_tank - float(_e_tank)
+            _consumed = _s0_tank + float(_s_del) - float(_e_tank)
             _rate = round(_consumed / _std_sum, 3) if _std_sum > 0 else 0
             _dbg_rows.append({"区間": f"{_s0}→{_d}", "s_tank": _s0_tank,
+                              "s_del": _s_del, "s_tank+del": round(_s0_tank+float(_s_del),1),
                               "e_tank": _e_tank, "consumed": round(_consumed,1),
                               "std_sum": round(_std_sum,1), "rate": _rate})
             _s0 = _d
