@@ -687,10 +687,34 @@ with tab1:
     # ---- adj_dict（実測残量・調整発注）のセッション管理 ----
     adj_key = f"adj_dict_{sel_fh_id}"
     if adj_key not in st.session_state:
-        st.session_state[adj_key] = {}
+        # セッション初期化時にfeed_order_detailsから実測残量・調整発注を復元
+        _restored = {}
+        _fod_restore = supabase.table("feed_order_details") \
+            .select("delivery_date,actual_tank_remaining,order_qty,status") \
+            .eq("flock_house_id", sel_fh_id) \
+            .execute().data
+        for _r in _fod_restore:
+            if not _r.get("delivery_date"): continue
+            try:
+                _d = (date.fromisoformat(_r["delivery_date"]) - chick_in_date).days
+                if _d <= 0: continue
+                _entry = _restored.get(str(_d), {})
+                if _r.get("actual_tank_remaining") is not None:
+                    _entry["actual_tank"] = float(_r["actual_tank_remaining"])
+                _qty = float(_r.get("order_qty") or 0)
+                if _qty > 0 and _r.get("status") in ("予定", "発注済"):
+                    _entry["delivered"] = _qty
+                if _entry:
+                    _restored[str(_d)] = _entry
+            except Exception:
+                pass
+        st.session_state[adj_key] = _restored
     # 日齢0のdeliveredは除去（初回投入はfirst_qtyで固定）
-    if 0 in st.session_state.get(adj_key, {}):
-        st.session_state[adj_key].pop(0, None)
+    for _k0 in ("0", 0):
+        if _k0 in st.session_state.get(adj_key, {}):
+            st.session_state[adj_key][str(_k0)].pop("delivered", None)
+            if not st.session_state[adj_key].get(str(_k0)):
+                st.session_state[adj_key].pop(str(_k0), None)
     adj_dict = st.session_state[adj_key]
 
     # リセットボタン
@@ -1569,3 +1593,5 @@ with tab3:
         plt.close()
     else:
         st.info("記録がありません")
+
+
