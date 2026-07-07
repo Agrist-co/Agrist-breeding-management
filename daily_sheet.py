@@ -701,9 +701,7 @@ with tab1:
                 _entry = _restored.get(str(_d), {})
                 if _r.get("actual_tank_remaining") is not None:
                     _entry["actual_tank"] = float(_r["actual_tank_remaining"])
-                _qty = float(_r.get("order_qty") or 0)
-                if _qty > 0 and _r.get("status") in ("予定", "発注済"):
-                    _entry["delivered"] = _qty
+                # deliveredは復元しない（調整発注はユーザー手入力のみ有効）
                 if _entry:
                     _restored[str(_d)] = _entry
             except Exception:
