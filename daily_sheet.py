@@ -165,10 +165,12 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         dd = (od.get("feed_orders") or {}).get("delivery_date")
         if dd:
             day = (date.fromisoformat(dd) - chick_date).days
-            act_dict[day] = {
-                "actual_tank": float(od["actual_tank_remaining"]),
-                "delivered":   float(od["order_qty"] or 0),
-            }
+            # 同一日付は上書き（order_qty大を優先）
+            if day not in act_dict or float(od["order_qty"] or 0) > act_dict[day].get("delivered", 0):
+                act_dict[day] = {
+                    "actual_tank": float(od["actual_tank_remaining"]),
+                    "delivered":   float(od["order_qty"] or 0),
+                }
 
     # adj_dictのactual_tank: ユーザー入力による実測残量補正（Supabaseとは独立）
     adj_tank_map = {
@@ -692,17 +694,19 @@ with tab1:
             .select("delivery_date,actual_tank_remaining,order_qty,status") \
             .eq("flock_house_id", sel_fh_id) \
             .execute().data
+        # 同一日付は最新レコード（detail_id大）を優先
+        _fod_by_date = {}
         for _r in _fod_restore:
             if not _r.get("delivery_date"): continue
+            _dt = _r["delivery_date"]
+            if _dt not in _fod_by_date or _r.get("detail_id", 0) > _fod_by_date[_dt].get("detail_id", 0):
+                _fod_by_date[_dt] = _r
+        for _dt, _r in _fod_by_date.items():
             try:
-                _d = (date.fromisoformat(_r["delivery_date"]) - chick_in_date).days
+                _d = (date.fromisoformat(_dt) - chick_in_date).days
                 if _d <= 0: continue
-                _entry = _restored.get(str(_d), {})
                 if _r.get("actual_tank_remaining") is not None:
-                    _entry["actual_tank"] = float(_r["actual_tank_remaining"])
-                # deliveredは復元しない（調整発注はユーザー手入力のみ有効）
-                if _entry:
-                    _restored[str(_d)] = _entry
+                    _restored[str(_d)] = {"actual_tank": float(_r["actual_tank_remaining"])}
             except Exception:
                 pass
         st.session_state[adj_key] = _restored
@@ -1592,5 +1596,3 @@ with tab3:
         plt.close()
     else:
         st.info("記録がありません")
-
-
