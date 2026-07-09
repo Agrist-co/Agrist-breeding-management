@@ -842,8 +842,15 @@ with tab1:
         "外気最低℃": df_all["外気最低℃"],
         "平均体重g":  df_all["平均体重g"],
         "採食時間min":df_all["採食時間min"],
-        "納品量kg":   df_all["納品量kg"],
-        "飼料銘柄":   df_all["飼料銘柄"],
+            # 納品量・飼料銘柄: adj_dictの調整発注がある日のみ表示（過去データが混入しないように）
+            "納品量kg":   df_fc["day"].apply(
+                lambda d: df_all["納品量kg"].iloc[int(d)]
+                if any(int(k) == int(d) and v.get("delivered") for k, v in adj_dict.items())
+                else None),
+            "飼料銘柄":   df_fc["day"].apply(
+                lambda d: df_all["飼料銘柄"].iloc[int(d)]
+                if any(int(k) == int(d) and v.get("delivered") for k, v in adj_dict.items())
+                else ""),
         "作業日誌":   df_all["作業日誌"],
         # 発注予測列
         "採食kg(予)": df_fc["act_feed_kg"].round(1),
@@ -1007,7 +1014,10 @@ with tab1:
                 continue
 
             # 納品量入力時にfeed_order_detailsから発注内容をコピー
-            _delivery_qty = float(row["納品量kg"]) if pd.notna(row.get("納品量kg")) and row.get("納品量kg") else None
+            _raw_qty = row.get("納品量kg")
+            _delivery_qty = float(_raw_qty) if (
+                _raw_qty is not None and pd.notna(_raw_qty) and float(_raw_qty) > 0
+            ) else None
             _order_notes  = None
             _brand_id_del = None
             if _delivery_qty and _delivery_qty > 0:
