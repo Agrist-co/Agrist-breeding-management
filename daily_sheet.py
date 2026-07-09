@@ -159,7 +159,7 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
         avg_hum = sum(hums) / len(hums)
 
     # 実績確定日（実測タンク残量がある発注明細）
-    order_details = supabase.table("feed_order_details")         .select("*, feed_orders(delivery_date)")         .eq("flock_house_id", fh["flock_house_id"])         .not_.is_("actual_tank_remaining", "null")         .execute().data
+    order_details = supabase.table("feed_order_details")         .select("*, feed_orders(delivery_date)")         .eq("flock_house_id", fh["flock_house_id"])         .eq("status", "実測")         .not_.is_("actual_tank_remaining", "null")         .execute().data
     act_dict = {}
     for od in order_details:
         dd = (od.get("feed_orders") or {}).get("delivery_date")
