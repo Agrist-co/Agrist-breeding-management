@@ -841,17 +841,8 @@ with tab1:
         "外気最高℃": df_all["外気最高℃"],
         "外気最低℃": df_all["外気最低℃"],
         "平均体重g":  df_all["平均体重g"],
-        "採食時間min":df_all["採食時間min"],
-            # 納品量・飼料銘柄: adj_dictの調整発注がある日のみ表示（過去データが混入しないように）
-            "納品量kg":   df_fc["day"].apply(
-                lambda d: df_all["納品量kg"].iloc[int(d)]
-                if any(int(k) == int(d) and v.get("delivered") for k, v in adj_dict.items())
-                else None),
-            "飼料銘柄":   df_fc["day"].apply(
-                lambda d: df_all["飼料銘柄"].iloc[int(d)]
-                if any(int(k) == int(d) and v.get("delivered") for k, v in adj_dict.items())
-                else ""),
-        "作業日誌":   df_all["作業日誌"],
+        "納品量kg":   df_all["納品量kg"],
+        "飼料銘柄":   df_all["飼料銘柄"],
         # 発注予測列
         "採食kg(予)": df_fc["act_feed_kg"].round(1),
         "標準採食kg": df_fc["std_feed_kg"].round(1),
