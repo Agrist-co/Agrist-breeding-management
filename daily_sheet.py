@@ -705,8 +705,14 @@ with tab1:
             try:
                 _d = (date.fromisoformat(_dt) - chick_in_date).days
                 if _d <= 0: continue
+                _entry = {}
                 if _r.get("actual_tank_remaining") is not None:
-                    _restored[str(_d)] = {"actual_tank": float(_r["actual_tank_remaining"])}
+                    _entry["actual_tank"] = float(_r["actual_tank_remaining"])
+                # 調整発注も復元（status='実測'のorder_qty）
+                if _r.get("status") == "実測" and float(_r.get("order_qty") or 0) > 0:
+                    _entry["delivered"] = float(_r["order_qty"])
+                if _entry:
+                    _restored[str(_d)] = _entry
             except Exception:
                 pass
         st.session_state[adj_key] = _restored
@@ -737,6 +743,12 @@ with tab1:
     with st.expander("🔍 発注デバッグ", expanded=False):
         st.write(f"adj_dict: {adj_dict}")
         st.write(f"adj_dictキー型: {[type(k).__name__ for k in adj_dict.keys()]}")
+        st.write(f"adj_delivery: {adj_delivery}")
+        # df_allの飼料銘柄サンプル
+        _sample_brand = [(i, df_all.at[i,"飼料銘柄"], df_all.at[i,"納品量kg"]) 
+                         for i in range(min(5, len(df_all))) 
+                         if df_all.at[i,"飼料銘柄"] or df_all.at[i,"納品量kg"]]
+        st.write(f"df_all納品・銘柄: {_sample_brand}")
         st.write(f"初回投入量: {float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
         st.write(f"feed_correction_factor(DB): {sel_fh.get('feed_correction_factor')}")
         st.write(f"weighted_corr: {float(sel_fh.get('feed_correction_factor') or 1.0)}")
@@ -1078,27 +1090,34 @@ with tab1:
         # 発注予測の保存（_do_fc_save連動）
         if _do_fc_save and not order_plan.empty:
             try:
-                # adj_dictの実測残量をfeed_order_detailsに保存
+                # adj_dictの実測残量・調整発注をfeed_order_detailsに保存
                 for _day_str, _v in new_adj.items():
-                    _act_tank = _v.get("actual_tank")
-                    if _act_tank is None:
+                    _act_tank  = _v.get("actual_tank")
+                    _delivered = _v.get("delivered") or 0
+                    if _act_tank is None and _delivered == 0:
                         continue
                     _act_date = str(chick_in_date + timedelta(days=int(_day_str)))
+                    _upd_data = {}
+                    if _act_tank is not None:
+                        _upd_data["actual_tank_remaining"] = float(_act_tank)
+                    if _delivered > 0:
+                        _upd_data["adj_delivered_qty"] = float(_delivered)
                     _exist = supabase.table("feed_order_details") \
                         .select("detail_id") \
                         .eq("flock_house_id", sel_fh_id) \
                         .eq("delivery_date", _act_date) \
+                        .eq("status", "実測") \
                         .limit(1).execute().data
                     if _exist:
-                        supabase.table("feed_order_details").update({
-                            "actual_tank_remaining": float(_act_tank),
-                        }).eq("detail_id", _exist[0]["detail_id"]).execute()
+                        supabase.table("feed_order_details").update(
+                            _upd_data
+                        ).eq("detail_id", _exist[0]["detail_id"]).execute()
                     else:
                         supabase.table("feed_order_details").insert({
                             "flock_house_id":        sel_fh_id,
                             "delivery_date":         _act_date,
-                            "actual_tank_remaining": float(_act_tank),
-                            "order_qty":             0,
+                            "actual_tank_remaining": float(_act_tank) if _act_tank is not None else None,
+                            "order_qty":             float(_delivered),
                             "status":                "実測",
                         }).execute()
 
