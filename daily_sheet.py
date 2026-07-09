@@ -743,12 +743,6 @@ with tab1:
     with st.expander("🔍 発注デバッグ", expanded=False):
         st.write(f"adj_dict: {adj_dict}")
         st.write(f"adj_dictキー型: {[type(k).__name__ for k in adj_dict.keys()]}")
-        st.write(f"adj_delivery: {adj_delivery}")
-        # df_allの飼料銘柄サンプル
-        _sample_brand = [(i, df_all.at[i,"飼料銘柄"], df_all.at[i,"納品量kg"]) 
-                         for i in range(min(5, len(df_all))) 
-                         if df_all.at[i,"飼料銘柄"] or df_all.at[i,"納品量kg"]]
-        st.write(f"df_all納品・銘柄: {_sample_brand}")
         st.write(f"初回投入量: {float(sel_fh.get('initial_feed_delivery_qty') or 0):.0f}kg")
         st.write(f"feed_correction_factor(DB): {sel_fh.get('feed_correction_factor')}")
         st.write(f"weighted_corr: {float(sel_fh.get('feed_correction_factor') or 1.0)}")
