@@ -848,6 +848,7 @@ with tab1:
         "外気最低℃": df_all["外気最低℃"],
         "平均体重g":  df_all["平均体重g"],
         "納品量kg":   df_all["納品量kg"],
+        "採食時間min":df_all["採食時間min"],
         "飼料銘柄":   df_all["飼料銘柄"],
         # 発注予測列
         "採食kg(予)": df_fc["act_feed_kg"].round(1),
