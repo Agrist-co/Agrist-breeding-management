@@ -258,18 +258,13 @@ def run_feed_forecast(fh, recs, house_coef, std_qty, min_alert, lead_time, adj_d
             s_tank_raw = combined_tank[s]["actual_tank"]
             e_tank     = combined_tank[e]["actual_tank"]
 
-            # 区間内（s+1〜e-1）の調整発注量を加算
+            # 補正率計算: 調整発注は含めない（純粋な実測残量の差で計算）
+            # s日の調整発注のみ加算（実測残量はタンク投入後の値のため）
+            s_delivery = combined_tank[s].get("delivered", 0)
             delivered_between = 0.0
             for dd in range(s + 1, e):
                 if dd in combined_tank:
                     delivered_between += combined_tank[dd].get("delivered", 0)
-                elif dd in adj_delivery_map:
-                    delivered_between += adj_delivery_map[dd]
-
-            # s日の調整発注も加算（s日に納品して翌日から消費が始まる場合）
-            s_delivery = combined_tank[s].get("delivered", 0)
-            if s_delivery == 0 and s in adj_delivery_map:
-                s_delivery = adj_delivery_map[s]
 
             consumed = s_tank_raw + s_delivery + delivered_between - e_tank
             # 区間s〜e-1の標準採食量合計（補正率計算の分母は常にstd_feed_kg）
@@ -709,8 +704,8 @@ with tab1:
                 if _r.get("actual_tank_remaining") is not None:
                     _entry["actual_tank"] = float(_r["actual_tank_remaining"])
                 # 調整発注も復元（status='実測'のorder_qty）
-                if _r.get("status") == "実測" and float(_r.get("order_qty") or 0) > 0:
-                    _entry["delivered"] = float(_r["order_qty"])
+                # deliveredは補正率計算に影響するため復元しない
+                # セッション中のみ有効（ページリロード後は再入力が必要）
                 if _entry:
                     _restored[str(_d)] = _entry
             except Exception:
@@ -847,9 +842,9 @@ with tab1:
         "外気最高℃": df_all["外気最高℃"],
         "外気最低℃": df_all["外気最低℃"],
         "平均体重g":  df_all["平均体重g"],
-        "納品量kg":   df_all["納品量kg"],
+        "納品量kg":   df_fc["day"].apply(lambda d: float(adj_delivery.get(int(d))) if adj_delivery.get(int(d)) else None),
         "採食時間min":df_all["採食時間min"],
-        "飼料銘柄":   df_all["飼料銘柄"],
+        "飼料銘柄":   df_fc["day"].apply(lambda d: df_all["飼料銘柄"].iloc[int(d)] if adj_delivery.get(int(d)) else ""),
         # 発注予測列
         "採食kg(予)": df_fc["act_feed_kg"].round(1),
         "標準採食kg": df_fc["std_feed_kg"].round(1),
