@@ -1090,8 +1090,8 @@ with tab1:
                     _upd_data = {}
                     if _act_tank is not None:
                         _upd_data["actual_tank_remaining"] = float(_act_tank)
-                    if _delivered > 0:
-                        _upd_data["adj_delivered_qty"] = float(_delivered)
+                    # deliveredはorder_qtyに保存（status='実測'で区別）
+                    _upd_data["order_qty"] = float(_delivered) if _delivered > 0 else 0
                     _exist = supabase.table("feed_order_details") \
                         .select("detail_id") \
                         .eq("flock_house_id", sel_fh_id) \
